@@ -40,7 +40,7 @@ all_genres = sorted(
 
 # ---------- TOP 50% USERS ----------
 user_counts = ratings["userId"].value_counts()
-top_users = user_counts.head(int(len(user_counts) * 0.50)).index
+top_users = user_counts.head(int(len(user_counts) * 1)).index
 ratings_top = ratings[ratings["userId"].isin(top_users)]
 
 user_movie_matrix = ratings_top.pivot_table(

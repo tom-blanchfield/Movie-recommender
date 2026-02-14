@@ -7,8 +7,25 @@ from sklearn.metrics.pairwise import cosine_similarity
 st.set_page_config(page_title="Movie Recommender", layout="wide")
 st.title("🎬 Movie Recommender")
 
-# -------------------- TMDB API KEY --------------------
-TMDB_API_KEY = "888bb40cd1f4d3c95b375753e9c34c09"
+# ---------- AUTO SCREEN WIDTH ----------
+st.markdown(
+    """
+    <script>
+    const width = window.innerWidth;
+    window.parent.postMessage({type: "streamlit:setSessionState", key: "screen_width", value: width}, "*");
+    </script>
+    """,
+    unsafe_allow_html=True
+)
+
+if "screen_width" not in st.session_state:
+    st.session_state.screen_width = 800
+
+columns_num = 1 if st.session_state.screen_width < 900 else 3
+poster_width = 350 if columns_num == 1 else 180
+
+# ---------------- TMDB API ----------------
+TMDB_API_KEY = "YOUR_API_KEY"
 
 # ---------- LOAD DATA ----------
 @st.cache_data
@@ -24,17 +41,15 @@ ratings, movies, tags, links = load_data()
 movies["genres"] = movies["genres"].fillna("")
 movies = movies.merge(links, on="movieId", how="left")
 
-# ---------- RATING STATS ----------
-rating_stats = ratings.groupby("movieId")["rating"].agg(["mean", "count"]).reset_index()
-rating_stats.columns = ["movieId", "avg_rating", "rating_count"]
-
+# ---------- RATINGS STATS ----------
+rating_stats = ratings.groupby("movieId")["rating"].agg(["mean","count"]).reset_index()
+rating_stats.columns = ["movieId","avg_rating","rating_count"]
 movies = movies.merge(rating_stats, on="movieId", how="left")
-movies["avg_rating"] = movies["avg_rating"].fillna(0)
-movies["rating_count"] = movies["rating_count"].fillna(0)
+movies.fillna({"avg_rating":0,"rating_count":0}, inplace=True)
 
 MIN_RATINGS = 20
 
-# ---------- POSTER FETCH FUNCTION ----------
+# ---------- POSTER ----------
 @st.cache_data(show_spinner=False)
 def get_poster(tmdb_id):
     if pd.isna(tmdb_id):
@@ -44,138 +59,117 @@ def get_poster(tmdb_id):
         r = requests.get(url, timeout=5)
         if r.status_code != 200:
             return None
-        data = r.json()
-        poster_path = data.get("poster_path")
+        poster_path = r.json().get("poster_path")
         if poster_path:
-            return f"https://image.tmdb.org/t/p/w400{poster_path}"
-    except Exception:
+            return f"https://image.tmdb.org/t/p/w500{poster_path}"
+    except:
         return None
     return None
 
 # ---------- GENRE LIST ----------
 all_genres = sorted(
-    set(
-        g
-        for sub in movies["genres"].str.split("|")
-        for g in sub
-        if g and g != "(no genres listed)"
-    )
+    set(g for sub in movies["genres"].str.split("|") for g in sub if g and g!="(no genres listed)")
 )
 
 # ---------- TOP 50% USERS ----------
 user_counts = ratings["userId"].value_counts()
-top_users = user_counts.head(int(len(user_counts) * 0.50)).index
+top_users = user_counts.head(int(len(user_counts)*0.5)).index
 ratings_top = ratings[ratings["userId"].isin(top_users)]
 
 user_movie_matrix = ratings_top.pivot_table(
-    index="userId",
-    columns="movieId",
-    values="rating"
+    index="userId", columns="movieId", values="rating"
 ).fillna(0)
 
-# ---------- SESSION STATE ----------
+# ---------- SESSION ----------
 if "user_ratings" not in st.session_state:
     st.session_state.user_ratings = {}
 
-# =========================================================
-# DISCOVER MOVIES
-# =========================================================
+# =================================================
+# DISCOVERY
+# =================================================
 st.subheader("Discover Movies")
-mode = st.selectbox("Choose recommendation mode", ["Genres", "Keywords"])
+
+mode = st.selectbox("Recommendation Mode", ["Genres","Keywords"])
+
 genre_tag_movies = movies.copy()
 
 if mode == "Genres":
     selected_genres = st.multiselect("Select Genres", all_genres)
-    if selected_genres:
-        genre_tag_movies["genre_score"] = genre_tag_movies["genres"].apply(
-            lambda g: sum(1 for sel in selected_genres if sel in g)
-        )
-    else:
-        genre_tag_movies["genre_score"] = 0
-    genre_tag_movies["tag_score"] = 0
 
-elif mode == "Keywords":
+    genre_tag_movies["genre_score"] = genre_tag_movies["genres"].apply(
+        lambda g: sum(1 for sel in selected_genres if sel in g)
+    )
+
+    ranked = genre_tag_movies[
+        (genre_tag_movies["genre_score"]>0) &
+        (genre_tag_movies["rating_count"]>=MIN_RATINGS)
+    ].sort_values(by=["avg_rating","rating_count"], ascending=False)
+
+else:
     selected_tags = st.multiselect(
-        "Keywords (press Enter after each)", options=[], default=[], accept_new_options=True
+        "Enter Keywords", options=[], default=[], accept_new_options=True
     )
     selected_tags = [t.lower() for t in selected_tags]
-    genre_tag_movies["genre_score"] = 0
+
     if selected_tags:
-        tag_mask = tags["tag"].str.lower().apply(lambda t: any(sel in t for sel in selected_tags))
-        tag_filtered = tags[tag_mask]
-        tag_counts = tag_filtered["movieId"].value_counts()
+        mask = tags["tag"].str.lower().apply(
+            lambda t: any(sel in t for sel in selected_tags)
+        )
+        tag_counts = tags[mask]["movieId"].value_counts()
         genre_tag_movies["tag_score"] = genre_tag_movies["movieId"].map(tag_counts).fillna(0)
     else:
         genre_tag_movies["tag_score"] = 0
 
-genre_tag_movies["total_score"] = genre_tag_movies["genre_score"] + genre_tag_movies["tag_score"]
+    ranked = genre_tag_movies[
+        (genre_tag_movies["tag_score"]>0) &
+        (genre_tag_movies["rating_count"]>=MIN_RATINGS)
+    ].sort_values(by=["avg_rating","rating_count"], ascending=False)
 
-if (mode == "Genres" and selected_genres) or (mode == "Keywords" and selected_tags):
-    ranked_movies = genre_tag_movies[
-        (genre_tag_movies["total_score"] > 0) &
-        (genre_tag_movies["rating_count"] >= MIN_RATINGS)
-    ].sort_values(by=["avg_rating", "rating_count"], ascending=False)
-
-    st.write("### Matching Movies")
-    rec_movies_list = ranked_movies.head(30).to_dict("records")
-
-    # Layout: Portrait = 1 column, Landscape/PC = 3 columns
-    columns_num = 1 if st.sidebar.checkbox("Portrait layout", value=True) else 3
-    poster_width = 350 if columns_num == 1 else 200
-
-    for i in range(0, len(rec_movies_list), columns_num):
+if not ranked.empty:
+    for i in range(0, min(30,len(ranked)), columns_num):
         cols = st.columns(columns_num)
-        for j, movie in enumerate(rec_movies_list[i:i+columns_num]):
-            poster = get_poster(movie["tmdbId"])
-            with cols[j]:
+        for col, (_, row) in zip(cols, ranked.iloc[i:i+columns_num].iterrows()):
+            with col:
+                poster = get_poster(row["tmdbId"])
                 if poster:
-                    st.image(poster, width=poster_width, use_column_width=False)
-                st.markdown(f"**{movie['title']}**  \n⭐ {movie['avg_rating']:.2f} ({int(movie['rating_count'])} ratings)")
+                    st.image(poster, width=poster_width)
+                st.markdown(f"**{row['title']}**  \n⭐ {row['avg_rating']:.2f}")
 
 st.divider()
 
-# =========================================================
-# RATE MOVIES WITH SINGLE DYNAMIC SELECTBOX
-# =========================================================
+# =================================================
+# RATE MOVIES
+# =================================================
 st.subheader("Rate Movies")
-movie_search = st.text_input("Type part of a movie title")
 
-if movie_search:
-    filtered_titles = movies[movies["title"].str.contains(movie_search, case=False, na=False)]["title"].tolist()
-else:
-    filtered_titles = []
+search = st.text_input("Search movie title")
+matches = movies[movies["title"].str.contains(search, case=False, na=False)].head(15)
 
-selected_movie = st.selectbox("Select movie", options=filtered_titles if filtered_titles else ["No results"])
-rating_value = st.slider("Rating", 1, 5, 3)
+selected_movie = st.selectbox("Select movie", matches["title"] if not matches.empty else ["No results"])
+rating_value = st.slider("Rating",1,5,3)
 
-if st.button("Add Rating") and filtered_titles:
-    movie_id = int(movies[movies["title"] == selected_movie]["movieId"].values[0])
-    st.session_state.user_ratings[movie_id] = int(rating_value)
+if st.button("Add Rating") and not matches.empty:
+    m_id = int(movies[movies["title"]==selected_movie]["movieId"].values[0])
+    st.session_state.user_ratings[m_id] = rating_value
 
-if st.session_state.user_ratings:
-    st.write("### Your Ratings")
-    for m_id, r in st.session_state.user_ratings.items():
-        title = movies[movies["movieId"] == m_id]["title"].values[0]
-        st.write(f"{title}: {r}")
+# =================================================
+# COLLAB RECOMMENDER
+# =================================================
+if st.button("Get Recommendations") and st.session_state.user_ratings:
 
-# =========================================================
-# COLLAB RECOMMENDATIONS
-# =========================================================
-if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
     user_vector = np.zeros(user_movie_matrix.shape[1])
-    movie_id_to_index = {int(m): i for i, m in enumerate(user_movie_matrix.columns)}
+    movie_map = {int(m):i for i,m in enumerate(user_movie_matrix.columns)}
 
     for m_id, r in st.session_state.user_ratings.items():
-        if m_id in movie_id_to_index:
-            user_vector[movie_id_to_index[m_id]] = r
+        if m_id in movie_map:
+            user_vector[movie_map[m_id]] = r
 
     similarities = cosine_similarity([user_vector], user_movie_matrix.values)[0]
-    similar_users_idx = np.argsort(similarities)[-10:]
-    similar_user_ids = user_movie_matrix.index[similar_users_idx]
+    similar_users = user_movie_matrix.index[np.argsort(similarities)[-10:]]
 
     fav_movies = ratings_top[
-        (ratings_top["userId"].isin(similar_user_ids)) &
-        (ratings_top["rating"] >= 4)
+        (ratings_top["userId"].isin(similar_users)) &
+        (ratings_top["rating"]>=4)
     ]
 
     movie_scores = fav_movies["movieId"].value_counts()
@@ -183,17 +177,15 @@ if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
         ~movie_scores.index.isin(st.session_state.user_ratings.keys())
     ].head(30)
 
+    recs = movies.set_index("movieId").loc[movie_scores.index]
+
     st.subheader("Recommended Movies")
-    rec_movies_list = [movies[movies["movieId"] == m_id].iloc[0] for m_id in movie_scores.index]
 
-    columns_num = 1 if st.sidebar.checkbox("Portrait layout", value=True) else 3
-    poster_width = 350 if columns_num == 1 else 200
-
-    for i in range(0, len(rec_movies_list), columns_num):
+    for i in range(0, len(recs), columns_num):
         cols = st.columns(columns_num)
-        for j, movie in enumerate(rec_movies_list[i:i+columns_num]):
-            poster = get_poster(movie["tmdbId"])
-            with cols[j]:
+        for col, (_, row) in zip(cols, recs.iloc[i:i+columns_num].iterrows()):
+            with col:
+                poster = get_poster(row["tmdbId"])
                 if poster:
-                    st.image(poster, width=poster_width, use_column_width=False)
-                st.markdown(f"**{movie['title']}**")
+                    st.image(poster, width=poster_width)
+                st.markdown(f"**{row['title']}**")

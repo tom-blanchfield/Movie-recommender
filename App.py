@@ -81,9 +81,7 @@ if "user_ratings" not in st.session_state:
 # DISCOVER MOVIES
 # =========================================================
 st.subheader("Discover Movies")
-
 mode = st.selectbox("Choose recommendation mode", ["Genres", "Keywords"])
-
 genre_tag_movies = movies.copy()
 
 if mode == "Genres":
@@ -121,15 +119,8 @@ if (mode == "Genres" and selected_genres) or (mode == "Keywords" and selected_ta
     st.write("### Matching Movies")
     rec_movies_list = ranked_movies.head(30).to_dict("records")
 
-    # Detect if page is narrow (approx portrait) and adjust columns/poster size
-    try:
-        from streamlit import runtime
-        width = runtime.scriptrunner.runtime.get_page_config().get("initial_sidebar_state", None)
-    except Exception:
-        width = 700  # fallback
-
-    # Portrait = 1 column, Landscape/PC = 3 columns
-    columns_num = 1 if st.session_state.get("screen_orientation", "portrait") == "portrait" else 3
+    # Layout: Portrait = 1 column, Landscape/PC = 3 columns
+    columns_num = 1 if st.sidebar.checkbox("Portrait layout", value=True) else 3
     poster_width = 350 if columns_num == 1 else 200
 
     for i in range(0, len(rec_movies_list), columns_num):
@@ -138,7 +129,7 @@ if (mode == "Genres" and selected_genres) or (mode == "Keywords" and selected_ta
             poster = get_poster(movie["tmdbId"])
             with cols[j]:
                 if poster:
-                    st.image(poster, width=poster_width)
+                    st.image(poster, width=poster_width, use_column_width=False)
                 st.markdown(f"**{movie['title']}**  \n⭐ {movie['avg_rating']:.2f} ({int(movie['rating_count'])} ratings)")
 
 st.divider()
@@ -147,7 +138,6 @@ st.divider()
 # RATE MOVIES WITH SINGLE DYNAMIC SELECTBOX
 # =========================================================
 st.subheader("Rate Movies")
-
 movie_search = st.text_input("Type part of a movie title")
 
 if movie_search:
@@ -156,7 +146,6 @@ else:
     filtered_titles = []
 
 selected_movie = st.selectbox("Select movie", options=filtered_titles if filtered_titles else ["No results"])
-
 rating_value = st.slider("Rating", 1, 5, 3)
 
 if st.button("Add Rating") and filtered_titles:
@@ -173,7 +162,6 @@ if st.session_state.user_ratings:
 # COLLAB RECOMMENDATIONS
 # =========================================================
 if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
-
     user_vector = np.zeros(user_movie_matrix.shape[1])
     movie_id_to_index = {int(m): i for i, m in enumerate(user_movie_matrix.columns)}
 
@@ -198,7 +186,7 @@ if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
     st.subheader("Recommended Movies")
     rec_movies_list = [movies[movies["movieId"] == m_id].iloc[0] for m_id in movie_scores.index]
 
-    columns_num = 1 if st.session_state.get("screen_orientation", "portrait") == "portrait" else 3
+    columns_num = 1 if st.sidebar.checkbox("Portrait layout", value=True) else 3
     poster_width = 350 if columns_num == 1 else 200
 
     for i in range(0, len(rec_movies_list), columns_num):
@@ -207,5 +195,5 @@ if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
             poster = get_poster(movie["tmdbId"])
             with cols[j]:
                 if poster:
-                    st.image(poster, width=poster_width)
+                    st.image(poster, width=poster_width, use_column_width=False)
                 st.markdown(f"**{movie['title']}**")

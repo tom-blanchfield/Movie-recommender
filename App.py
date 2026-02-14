@@ -118,17 +118,28 @@ if (mode == "Genres" and selected_genres) or (mode == "Keywords" and selected_ta
         (genre_tag_movies["rating_count"] >= MIN_RATINGS)
     ].sort_values(by=["avg_rating", "rating_count"], ascending=False)
 
-    for _, row in ranked_movies.head(30).iterrows():  # <- 30 recommendations
-        poster = get_poster(row["tmdbId"])
-        if poster:
-            st.markdown(
-                f"<div style='text-align:center'>"
-                f"<img src='{poster}' width='300'><br>"
-                f"<strong>{row['title']}</strong><br>"
-                f"⭐ {row['avg_rating']:.2f} ({int(row['rating_count'])} ratings)"
-                f"</div>",
-                unsafe_allow_html=True
-            )
+    st.write("### Matching Movies")
+    rec_movies_list = ranked_movies.head(30).to_dict("records")
+
+    # Detect if page is narrow (approx portrait) and adjust columns/poster size
+    try:
+        from streamlit import runtime
+        width = runtime.scriptrunner.runtime.get_page_config().get("initial_sidebar_state", None)
+    except Exception:
+        width = 700  # fallback
+
+    # Portrait = 1 column, Landscape/PC = 3 columns
+    columns_num = 1 if st.session_state.get("screen_orientation", "portrait") == "portrait" else 3
+    poster_width = 350 if columns_num == 1 else 200
+
+    for i in range(0, len(rec_movies_list), columns_num):
+        cols = st.columns(columns_num)
+        for j, movie in enumerate(rec_movies_list[i:i+columns_num]):
+            poster = get_poster(movie["tmdbId"])
+            with cols[j]:
+                if poster:
+                    st.image(poster, width=poster_width)
+                st.markdown(f"**{movie['title']}**  \n⭐ {movie['avg_rating']:.2f} ({int(movie['rating_count'])} ratings)")
 
 st.divider()
 
@@ -139,7 +150,6 @@ st.subheader("Rate Movies")
 
 movie_search = st.text_input("Type part of a movie title")
 
-# Dynamically filter movies based on input
 if movie_search:
     filtered_titles = movies[movies["title"].str.contains(movie_search, case=False, na=False)]["title"].tolist()
 else:
@@ -153,7 +163,6 @@ if st.button("Add Rating") and filtered_titles:
     movie_id = int(movies[movies["title"] == selected_movie]["movieId"].values[0])
     st.session_state.user_ratings[movie_id] = int(rating_value)
 
-# Display user ratings
 if st.session_state.user_ratings:
     st.write("### Your Ratings")
     for m_id, r in st.session_state.user_ratings.items():
@@ -184,19 +193,19 @@ if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
     movie_scores = fav_movies["movieId"].value_counts()
     movie_scores = movie_scores[
         ~movie_scores.index.isin(st.session_state.user_ratings.keys())
-    ].head(30)  # <- 30 recommendations
+    ].head(30)
 
     st.subheader("Recommended Movies")
+    rec_movies_list = [movies[movies["movieId"] == m_id].iloc[0] for m_id in movie_scores.index]
 
-    rec_movies = [movies[movies["movieId"] == m_id].iloc[0] for m_id in movie_scores.index]
+    columns_num = 1 if st.session_state.get("screen_orientation", "portrait") == "portrait" else 3
+    poster_width = 350 if columns_num == 1 else 200
 
-    for row in rec_movies:
-        poster = get_poster(row["tmdbId"])
-        if poster:
-            st.markdown(
-                f"<div style='text-align:center'>"
-                f"<img src='{poster}' width='300'><br>"
-                f"<strong>{row['title']}</strong>"
-                f"</div>",
-                unsafe_allow_html=True
-            )
+    for i in range(0, len(rec_movies_list), columns_num):
+        cols = st.columns(columns_num)
+        for j, movie in enumerate(rec_movies_list[i:i+columns_num]):
+            poster = get_poster(movie["tmdbId"])
+            with cols[j]:
+                if poster:
+                    st.image(poster, width=poster_width)
+                st.markdown(f"**{movie['title']}**")

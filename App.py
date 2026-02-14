@@ -196,14 +196,14 @@ if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
 
     rec_movies = [movies[movies["movieId"] == m_id].iloc[0] for m_id in movie_scores.index]
 
-    # Responsive columns: 1, 2, 3 per row
+    # Responsive: 1 poster per row for <3, 2 per row for 3-6, 3 per row for 6+
     total_movies = len(rec_movies)
     if total_movies <= 3:
         num_cols = total_movies
         poster_width = 250
     elif total_movies <= 6:
         num_cols = 2
-        poster_width = 200
+        poster_width = 220
     else:
         num_cols = 3
         poster_width = 180

@@ -47,7 +47,7 @@ def get_poster(tmdb_id):
         data = r.json()
         poster_path = data.get("poster_path")
         if poster_path:
-            return f"https://image.tmdb.org/t/p/w400{poster_path}"  # larger poster
+            return f"https://image.tmdb.org/t/p/w400{poster_path}"
     except Exception:
         return None
     return None
@@ -88,19 +88,17 @@ genre_tag_movies = movies.copy()
 
 if mode == "Genres":
     selected_genres = st.multiselect("Select Genres", all_genres)
-    # --- Genre Score ---
     if selected_genres:
         genre_tag_movies["genre_score"] = genre_tag_movies["genres"].apply(
             lambda g: sum(1 for sel in selected_genres if sel in g)
         )
     else:
         genre_tag_movies["genre_score"] = 0
-    # No tag score in genre mode
     genre_tag_movies["tag_score"] = 0
 
 elif mode == "Keywords":
     selected_tags = st.multiselect(
-        "Type keyword and press 'Add'", options=[], default=[], accept_new_options=True
+        "Keywords (press Enter after each)", options=[], default=[], accept_new_options=True
     )
     selected_tags = [t.lower() for t in selected_tags]
     genre_tag_movies["genre_score"] = 0
@@ -112,10 +110,8 @@ elif mode == "Keywords":
     else:
         genre_tag_movies["tag_score"] = 0
 
-# --- Total Score ---
 genre_tag_movies["total_score"] = genre_tag_movies["genre_score"] + genre_tag_movies["tag_score"]
 
-# --- Filter and Rank ---
 if (mode == "Genres" and selected_genres) or (mode == "Keywords" and selected_tags):
     ranked_movies = genre_tag_movies[
         (genre_tag_movies["total_score"] > 0) &
@@ -137,27 +133,24 @@ if (mode == "Genres" and selected_genres) or (mode == "Keywords" and selected_ta
 st.divider()
 
 # =========================================================
-# RATE MOVIES
+# RATE MOVIES WITH SINGLE DYNAMIC SELECTBOX
 # =========================================================
 st.subheader("Rate Movies")
 
-movie_search = st.text_input("Search movie")
+movie_search = st.text_input("Type part of a movie title")
 
-filtered_movies = movies[
-    movies["title"].str.contains(movie_search, case=False, na=False)
-].head(15)
+# Dynamically filter movies based on input
+if movie_search:
+    filtered_titles = movies[movies["title"].str.contains(movie_search, case=False, na=False)]["title"].tolist()
+else:
+    filtered_titles = []
 
-selected_movie = st.selectbox(
-    "Select movie",
-    filtered_movies["title"] if not filtered_movies.empty else ["No results"]
-)
+selected_movie = st.selectbox("Select movie", options=filtered_titles if filtered_titles else ["No results"])
 
 rating_value = st.slider("Rating", 1, 5, 3)
 
-if st.button("Add Rating") and not filtered_movies.empty:
-    movie_id = int(
-        movies[movies["title"] == selected_movie]["movieId"].values[0]
-    )
+if st.button("Add Rating") and filtered_titles:
+    movie_id = int(movies[movies["title"] == selected_movie]["movieId"].values[0])
     st.session_state.user_ratings[movie_id] = int(rating_value)
 
 # Display user ratings

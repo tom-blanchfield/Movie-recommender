@@ -8,8 +8,8 @@ st.title("🎬 Collaborative Movie Recommender")
 
 @st.cache_data
 def load_data():
-    ratings = pd.read_csv("ratings.csv")
-    movies = pd.read_csv("movies.csv")
+    ratings = pd.read_csv("data/ratings.csv")
+    movies = pd.read_csv("data/movies.csv")
     return ratings, movies
 
 ratings, movies = load_data()
@@ -25,27 +25,36 @@ user_movie_matrix = ratings_top.pivot_table(
     values="rating"
 ).fillna(0)
 
-# ---------- SESSION STATE ----------
+# ---------- SESSION ----------
 if "user_ratings" not in st.session_state:
     st.session_state.user_ratings = {}
 
 st.subheader("Rate Movies")
 
-search = st.text_input("Search movie title")
+search_text = st.text_input("Search movie title")
 
-matches = movies[movies["title"].str.contains(search, case=False, na=False)].head(10)
+filtered_movies = movies[
+    movies["title"].str.contains(search_text, case=False, na=False)
+].head(20)
 
-if not matches.empty:
-    selected_title = matches.iloc[0]["title"]
-    st.write("Selected:", selected_title)
+if not filtered_movies.empty:
+
+    title_to_id = {
+        row["title"]: int(row["movieId"])
+        for _, row in filtered_movies.iterrows()
+    }
+
+    selected_title = st.selectbox(
+        "Select movie",
+        list(title_to_id.keys())
+    )
 
     rating_val = st.slider("Your rating", 1, 5, 3)
 
     if st.button("Add Rating"):
-        movie_id = int(matches.iloc[0]["movieId"])  # FIX numpy int
-        st.session_state.user_ratings[movie_id] = int(rating_val)
+        st.session_state.user_ratings[title_to_id[selected_title]] = int(rating_val)
 
-# Display rated movies nicely
+# ---------- SHOW USER RATINGS ----------
 if st.session_state.user_ratings:
     st.write("### Your Ratings")
     for m_id, r in st.session_state.user_ratings.items():
@@ -66,7 +75,6 @@ if st.button("Get Recommendations") and st.session_state.user_ratings:
     similar_users_idx = np.argsort(similarities)[-10:]
     similar_user_ids = user_movie_matrix.index[similar_users_idx]
 
-    # ---------- STRICT 5 STAR AGREEMENT ----------
     sim_ratings = ratings_top[ratings_top["userId"].isin(similar_user_ids)]
 
     grouped = sim_ratings.groupby("movieId")["rating"]
@@ -74,12 +82,17 @@ if st.button("Get Recommendations") and st.session_state.user_ratings:
     unanimous_5 = grouped.apply(lambda x: (x == 5).all())
     unanimous_ids = unanimous_5[unanimous_5].index
 
-    # Count ratings
-    rating_counts = sim_ratings[sim_ratings["movieId"].isin(unanimous_ids)] \
-        .groupby("movieId").size().sort_values(ascending=False)
+    rating_counts = (
+        sim_ratings[sim_ratings["movieId"].isin(unanimous_ids)]
+        .groupby("movieId")
+        .size()
+        .sort_values(ascending=False)
+    )
 
-    # Remove movies user already rated
-    rating_counts = rating_counts[~rating_counts.index.isin(st.session_state.user_ratings.keys())]
+    # Remove already rated movies
+    rating_counts = rating_counts[
+        ~rating_counts.index.isin(st.session_state.user_ratings.keys())
+    ]
 
     top_ids = rating_counts.head(20).index
     rec_movies = movies[movies["movieId"].isin(top_ids)]

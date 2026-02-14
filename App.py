@@ -58,7 +58,6 @@ selected_movie = st.selectbox(
     filtered_movies["title"] if not filtered_movies.empty else ["No results"]
 )
 
-# FIXED LINE (no underscore)
 rating_value = st.slider("Your rating", 1, 5, 3)
 
 if st.button("Add Rating") and not filtered_movies.empty:
@@ -85,6 +84,7 @@ tag_search = st.text_input("Optional Tag Keyword")
 
 genre_tag_movies = movies.copy()
 
+# GENRE SCORE
 if selected_genres:
     genre_tag_movies["genre_score"] = genre_tag_movies["genres"].apply(
         lambda g: sum(1 for sel in selected_genres if sel in g)
@@ -92,6 +92,7 @@ if selected_genres:
 else:
     genre_tag_movies["genre_score"] = 0
 
+# TAG SCORE
 if tag_search:
     tag_filtered = tags[
         tags["tag"].str.contains(tag_search, case=False, na=False)
@@ -156,4 +157,5 @@ if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
     rec_movies = movies.set_index("movieId").loc[movie_scores.index]
 
     st.subheader("Recommended Movies")
-    for
+    for title in rec_movies["title"].values:
+        st.write("•", title)

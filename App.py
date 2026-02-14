@@ -64,7 +64,7 @@ all_genres = sorted(
 
 # ---------- TOP 50% USERS ----------
 user_counts = ratings["userId"].value_counts()
-top_users = user_counts.head(int(len(user_counts) * 1.0)).index
+top_users = user_counts.head(int(len(user_counts) * 0.50)).index
 ratings_top = ratings[ratings["userId"].isin(top_users)]
 
 user_movie_matrix = ratings_top.pivot_table(
@@ -118,7 +118,7 @@ if (mode == "Genres" and selected_genres) or (mode == "Keywords" and selected_ta
         (genre_tag_movies["rating_count"] >= MIN_RATINGS)
     ].sort_values(by=["avg_rating", "rating_count"], ascending=False)
 
-    for _, row in ranked_movies.head(15).iterrows():
+    for _, row in ranked_movies.head(30).iterrows():  # <- 30 recommendations
         poster = get_poster(row["tmdbId"])
         if poster:
             st.markdown(
@@ -184,7 +184,7 @@ if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
     movie_scores = fav_movies["movieId"].value_counts()
     movie_scores = movie_scores[
         ~movie_scores.index.isin(st.session_state.user_ratings.keys())
-    ].head(12)
+    ].head(30)  # <- 30 recommendations
 
     st.subheader("Recommended Movies")
 

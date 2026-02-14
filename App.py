@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 st.set_page_config(page_title="Movie Recommender", layout="wide")
-st.title("🎬 Collaborative Movie Recommender")
+st.title("🎬 Movie Recommender")
 
 # ---------- LOAD DATA ----------
 @st.cache_data
@@ -61,7 +61,7 @@ st.subheader("Discover Movies by Genre & Keywords")
 selected_genres = st.multiselect("Select Genres", all_genres)
 
 selected_tags = st.multiselect(
-    "Add Keywords (press Enter after each)",
+    "Type Keywords and press 'Add'",
     options=[],
     default=[],
     accept_new_options=True

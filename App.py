@@ -10,8 +10,9 @@ st.title("🎬 Collaborative Movie Recommender")
 # ---------- TMDB API ----------
 TMDB_API_KEY = "888bb40cd1f4d3c95b375753e9c34c09"
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def get_poster(tmdb_id):
+    """Fetch TMDb poster for a movie, safely."""
     if pd.isna(tmdb_id):
         return None
     try:
@@ -37,5 +38,29 @@ def load_data():
     return ratings, movies, tags, links
 
 ratings, movies, tags, links = load_data()
-
 movies["genres"] = movies["genres"].fillna("")
+movies = movies.merge(links, on="movieId", how="left")
+
+# ---------- RATING STATS ----------
+rating_stats = ratings.groupby("movieId")["rating"].agg(["mean","count"]).reset_index()
+rating_stats.columns = ["movieId","avg_rating","rating_count"]
+movies = movies.merge(rating_stats, on="movieId", how="left")
+movies["avg_rating"] = movies["avg_rating"].fillna(0)
+movies["rating_count"] = movies["rating_count"].fillna(0)
+MIN_RATINGS = 20
+
+# ---------- GENRE LIST ----------
+all_genres = sorted(set(g for sub in movies["genres"].str.split("|") for g in sub if g and g != "(no genres listed)"))
+
+# ---------- TOP 50% USERS ----------
+user_counts = ratings["userId"].value_counts()
+top_users = user_counts.head(int(len(user_counts)*0.50)).index
+ratings_top = ratings[ratings["userId"].isin(top_users)]
+
+user_movie_matrix = ratings_top.pivot_table(index="userId", columns="movieId", values="rating").fillna(0)
+
+# ---------- SESSION STATE ----------
+if "user_ratings" not in st.session_state:
+    st.session_state.user_ratings = {}
+
+# =================================

@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 st.set_page_config(page_title="Movie Recommender", layout="wide")
-st.title("🎬 Collaborative Movie Recommender")
+st.title("🎬 Movie Recommender System")
 
 # ---------- LOAD DATA ----------
 @st.cache_data

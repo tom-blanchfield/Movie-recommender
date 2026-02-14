@@ -18,6 +18,17 @@ ratings, movies, tags = load_data()
 
 movies["genres"] = movies["genres"].fillna("")
 
+# ---------- RATING STATS ----------
+rating_stats = ratings.groupby("movieId")["rating"].agg(["mean", "count"]).reset_index()
+rating_stats.columns = ["movieId", "avg_rating", "rating_count"]
+
+movies = movies.merge(rating_stats, on="movieId", how="left")
+movies["avg_rating"] = movies["avg_rating"].fillna(0)
+movies["rating_count"] = movies["rating_count"].fillna(0)
+
+MIN_RATINGS = 20
+
+# ---------- GENRE LIST ----------
 all_genres = sorted(
     set(
         g
@@ -29,7 +40,7 @@ all_genres = sorted(
 
 # ---------- TOP 50% USERS ----------
 user_counts = ratings["userId"].value_counts()
-top_users = user_counts.head(int(len(user_counts) * 0.20)).index
+top_users = user_counts.head(int(len(user_counts) * 0.50)).index
 ratings_top = ratings[ratings["userId"].isin(top_users)]
 
 user_movie_matrix = ratings_top.pivot_table(
@@ -85,13 +96,21 @@ genre_tag_movies["total_score"] = (
 )
 
 if selected_genres or selected_tags:
+
     ranked_movies = genre_tag_movies[
-        genre_tag_movies["total_score"] > 0
-    ].sort_values(by="total_score", ascending=False)
+        (genre_tag_movies["total_score"] > 0) &
+        (genre_tag_movies["rating_count"] >= MIN_RATINGS)
+    ].sort_values(
+        by=["avg_rating", "rating_count"],
+        ascending=False
+    )
 
     st.write("### Matching Movies")
     for _, row in ranked_movies.head(25).iterrows():
-        st.write(f"• {row['title']} (Score: {int(row['total_score'])})")
+        st.write(
+            f"• {row['title']} "
+            f"(⭐ {row['avg_rating']:.2f} | {int(row['rating_count'])} ratings)"
+        )
 
 st.divider()
 
@@ -128,7 +147,7 @@ if st.session_state.user_ratings:
         st.write(f"{title}: {r}")
 
 # =========================================================
-# GET RECOMMENDATIONS BUTTON MOVED HERE
+# GET RECOMMENDATIONS
 # =========================================================
 if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
 

@@ -47,7 +47,7 @@ def get_poster(tmdb_id):
         data = r.json()
         poster_path = data.get("poster_path")
         if poster_path:
-            return f"https://image.tmdb.org/t/p/w400{poster_path}"  # doubled size
+            return f"https://image.tmdb.org/t/p/w400{poster_path}"  # larger poster
     except Exception:
         return None
     return None
@@ -80,20 +80,18 @@ if "user_ratings" not in st.session_state:
 # =========================================================
 # GENRE + TAG DISCOVERY
 # =========================================================
-st.subheader("Discover Movies")
+st.subheader("Discover Movies by Genre & Keywords")
 
 selected_genres = st.multiselect("Genres", all_genres)
 
 selected_tags = st.multiselect(
-    "Keywords",
-    options=[],
-    default=[],
-    accept_new_options=True
+    "Keywords (press Enter after each)", options=[], default=[], accept_new_options=True
 )
 
+# Copy movies
 genre_tag_movies = movies.copy()
 
-# Genre score
+# --- Genre Score ---
 if selected_genres:
     genre_tag_movies["genre_score"] = genre_tag_movies["genres"].apply(
         lambda g: sum(1 for sel in selected_genres if sel in g)
@@ -101,7 +99,7 @@ if selected_genres:
 else:
     genre_tag_movies["genre_score"] = 0
 
-# Tag score
+# --- Tag Score ---
 selected_tags = [t.lower() for t in selected_tags]
 
 if selected_tags:
@@ -112,9 +110,10 @@ if selected_tags:
 else:
     genre_tag_movies["tag_score"] = 0
 
+# --- Total Score ---
 genre_tag_movies["total_score"] = genre_tag_movies["genre_score"] + genre_tag_movies["tag_score"]
 
-# Filter and sort
+# --- Filter and Rank ---
 if selected_genres or selected_tags:
     ranked_movies = genre_tag_movies[
         (genre_tag_movies["total_score"] > 0) &

@@ -9,8 +9,8 @@ st.title("🎬 Collaborative Movie Recommender")
 
 @st.cache_data
 def load_data():
-    ratings = pd.read_csv("data/ratings.csv")
-    movies = pd.read_csv("data/movies.csv")
+    ratings = pd.read_csv("ratings.csv")
+    movies = pd.read_csv("movies.csv")
     return ratings, movies
 
 ratings, movies = load_data()

@@ -96,10 +96,40 @@ if selected_genres or selected_tags:
 st.divider()
 
 # =========================================================
-# COLLABORATIVE RECOMMENDATIONS  (MIDDLE)
+# RATE MOVIES + RECOMMEND BUTTON (BOTTOM)
 # =========================================================
-st.subheader("Get Personalised Recommendations")
+st.subheader("Rate Movies")
 
+movie_search = st.text_input("Search movie title")
+
+filtered_movies = movies[
+    movies["title"].str.contains(movie_search, case=False, na=False)
+].head(15)
+
+selected_movie = st.selectbox(
+    "Select movie",
+    filtered_movies["title"] if not filtered_movies.empty else ["No results"]
+)
+
+rating_value = st.slider("Your rating", 1, 5, 3)
+
+# ADD RATING
+if st.button("Add Rating") and not filtered_movies.empty:
+    movie_id = int(
+        movies[movies["title"] == selected_movie]["movieId"].values[0]
+    )
+    st.session_state.user_ratings[movie_id] = int(rating_value)
+
+# DISPLAY USER RATINGS
+if st.session_state.user_ratings:
+    st.write("### Your Ratings")
+    for m_id, r in st.session_state.user_ratings.items():
+        title = movies[movies["movieId"] == m_id]["title"].values[0]
+        st.write(f"{title}: {r}")
+
+# =========================================================
+# GET RECOMMENDATIONS BUTTON MOVED HERE
+# =========================================================
 if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
 
     user_vector = np.zeros(user_movie_matrix.shape[1])
@@ -127,39 +157,7 @@ if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
 
     rec_movies = movies.set_index("movieId").loc[movie_scores.index]
 
-    st.write("### Recommended Movies")
+    st.divider()
+    st.subheader("Recommended Movies")
     for title in rec_movies["title"].values:
         st.write("•", title)
-
-st.divider()
-
-# =========================================================
-# RATE MOVIES  (BOTTOM)
-# =========================================================
-st.subheader("Rate Movies")
-
-movie_search = st.text_input("Search movie title")
-
-filtered_movies = movies[
-    movies["title"].str.contains(movie_search, case=False, na=False)
-].head(15)
-
-selected_movie = st.selectbox(
-    "Select movie",
-    filtered_movies["title"] if not filtered_movies.empty else ["No results"]
-)
-
-rating_value = st.slider("Your rating", 1, 5, 3)
-
-if st.button("Add Rating") and not filtered_movies.empty:
-    movie_id = int(
-        movies[movies["title"] == selected_movie]["movieId"].values[0]
-    )
-    st.session_state.user_ratings[movie_id] = int(rating_value)
-
-# DISPLAY USER RATINGS
-if st.session_state.user_ratings:
-    st.write("### Your Ratings")
-    for m_id, r in st.session_state.user_ratings.items():
-        title = movies[movies["movieId"] == m_id]["title"].values[0]
-        st.write(f"{title}: {r}")

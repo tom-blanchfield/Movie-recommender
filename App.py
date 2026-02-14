@@ -154,10 +154,13 @@ if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
     similar_users_idx = np.argsort(similarities)[-10:]
     similar_user_ids = user_movie_matrix.index[similar_users_idx]
 
-    fav_movies = ratings_top[
-        (ratings_top["userId"].isin(similar_user_ids)) &
-        (ratings_top["rating"] >= 4)
-    ]
+   fav_movies = ratings_top[
+    (ratings_top["userId"].isin(similar_user_ids)) &
+    (ratings_top["rating"] >= 4)
+]
+
+movie_scores = fav_movies["movieId"].value_counts()
+ 
 
      movie_scores = fav_movies["movieId"].value_counts()
 

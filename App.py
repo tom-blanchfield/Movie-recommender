@@ -61,7 +61,7 @@ st.subheader("Discover Movies by Genre & Keywords")
 selected_genres = st.multiselect("Select Genres", all_genres)
 
 selected_tags = st.multiselect(
-    "Add Keywords (press Enter after each)",
+    "Add Keywords",
     options=[],
     default=[],
     accept_new_options=True

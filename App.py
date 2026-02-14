@@ -78,43 +78,45 @@ if "user_ratings" not in st.session_state:
     st.session_state.user_ratings = {}
 
 # =========================================================
-# GENRE + TAG DISCOVERY
+# DISCOVER MOVIES
 # =========================================================
-st.subheader("Discover Movies by Genres or Keywords")
+st.subheader("Discover Movies")
 
-selected_genres = st.multiselect("Genres", all_genres)
+mode = st.selectbox("Choose recommendation mode", ["Genres", "Keywords"])
 
-selected_tags = st.multiselect(
-    "Keywords (press Enter after each)", options=[], default=[], accept_new_options=True
-)
-
-# Copy movies
 genre_tag_movies = movies.copy()
 
-# --- Genre Score ---
-if selected_genres:
-    genre_tag_movies["genre_score"] = genre_tag_movies["genres"].apply(
-        lambda g: sum(1 for sel in selected_genres if sel in g)
-    )
-else:
-    genre_tag_movies["genre_score"] = 0
-
-# --- Tag Score ---
-selected_tags = [t.lower() for t in selected_tags]
-
-if selected_tags:
-    tag_mask = tags["tag"].str.lower().apply(lambda t: any(sel in t for sel in selected_tags))
-    tag_filtered = tags[tag_mask]
-    tag_counts = tag_filtered["movieId"].value_counts()
-    genre_tag_movies["tag_score"] = genre_tag_movies["movieId"].map(tag_counts).fillna(0)
-else:
+if mode == "Genres":
+    selected_genres = st.multiselect("Select Genres", all_genres)
+    # --- Genre Score ---
+    if selected_genres:
+        genre_tag_movies["genre_score"] = genre_tag_movies["genres"].apply(
+            lambda g: sum(1 for sel in selected_genres if sel in g)
+        )
+    else:
+        genre_tag_movies["genre_score"] = 0
+    # No tag score in genre mode
     genre_tag_movies["tag_score"] = 0
+
+elif mode == "Keywords":
+    selected_tags = st.multiselect(
+        "Keywords (press Enter after each)", options=[], default=[], accept_new_options=True
+    )
+    selected_tags = [t.lower() for t in selected_tags]
+    genre_tag_movies["genre_score"] = 0
+    if selected_tags:
+        tag_mask = tags["tag"].str.lower().apply(lambda t: any(sel in t for sel in selected_tags))
+        tag_filtered = tags[tag_mask]
+        tag_counts = tag_filtered["movieId"].value_counts()
+        genre_tag_movies["tag_score"] = genre_tag_movies["movieId"].map(tag_counts).fillna(0)
+    else:
+        genre_tag_movies["tag_score"] = 0
 
 # --- Total Score ---
 genre_tag_movies["total_score"] = genre_tag_movies["genre_score"] + genre_tag_movies["tag_score"]
 
 # --- Filter and Rank ---
-if selected_genres or selected_tags:
+if (mode == "Genres" and selected_genres) or (mode == "Keywords" and selected_tags):
     ranked_movies = genre_tag_movies[
         (genre_tag_movies["total_score"] > 0) &
         (genre_tag_movies["rating_count"] >= MIN_RATINGS)

@@ -100,7 +100,7 @@ if mode == "Genres":
 
 elif mode == "Keywords":
     selected_tags = st.multiselect(
-        "Keywords (press Enter after each)", options=[], default=[], accept_new_options=True
+        "Type keyword and press 'Add'", options=[], default=[], accept_new_options=True
     )
     selected_tags = [t.lower() for t in selected_tags]
     genre_tag_movies["genre_score"] = 0

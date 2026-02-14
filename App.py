@@ -159,4 +159,5 @@ if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
         (ratings_top["rating"] >= 4)
     ]
 
-    movie_scores = fav_movies["movi]()
+     movie_scores = fav_movies["movieId"].value_counts()
+

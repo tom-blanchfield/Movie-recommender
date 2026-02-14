@@ -17,7 +17,7 @@ ratings, movies = load_data()
 
 # -------- TOP 10% MOST ACTIVE USERS --------
 user_counts = ratings["userId"].value_counts()
-top_users = user_counts.head(int(len(user_counts) * 0.10)).index
+top_users = user_counts.head(int(len(user_counts) * 0.50)).index
 ratings_top = ratings[ratings["userId"].isin(top_users)]
 
 # Pivot matrix

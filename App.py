@@ -65,4 +65,4 @@ all_genres = sorted(
 # ---------- TOP 50% USERS ----------
 user_counts = ratings["userId"].value_counts()
 top_users = user_counts.head(int(len(user_counts) * 0.50)).index
-ratin
+

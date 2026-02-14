@@ -79,12 +79,23 @@ if st.session_state.user_ratings:
 st.divider()
 st.subheader("Discover by Genre & Tags")
 
-selected_genres = st.multiselect("Select Genres", all_genres)
-tag_search = st.text_input("Optional Tag Keyword")
+# ---------- GENRES ----------
+selected_genres = st.multiselect(
+    "Select Genres",
+    all_genres
+)
+
+# ---------- TAG CHIPS ----------
+selected_tags = st.multiselect(
+    "Add Keywords (press Enter after each)",
+    options=[],
+    default=[],
+    accept_new_options=True
+)
 
 genre_tag_movies = movies.copy()
 
-# GENRE SCORE
+# ---------- GENRE SCORE ----------
 if selected_genres:
     genre_tag_movies["genre_score"] = genre_tag_movies["genres"].apply(
         lambda g: sum(1 for sel in selected_genres if sel in g)
@@ -92,22 +103,30 @@ if selected_genres:
 else:
     genre_tag_movies["genre_score"] = 0
 
-# TAG SCORE
-if tag_search:
-    tag_filtered = tags[
-        tags["tag"].str.contains(tag_search, case=False, na=False)
-    ]
+# ---------- TAG SCORE ----------
+selected_tags = [t.lower() for t in selected_tags]
+
+if selected_tags:
+    tag_mask = tags["tag"].str.lower().apply(
+        lambda t: any(sel in t for sel in selected_tags)
+    )
+
+    tag_filtered = tags[tag_mask]
     tag_counts = tag_filtered["movieId"].value_counts()
-    genre_tag_movies["tag_score"] = genre_tag_movies["movieId"].map(tag_counts).fillna(0)
+
+    genre_tag_movies["tag_score"] = (
+        genre_tag_movies["movieId"].map(tag_counts).fillna(0)
+    )
 else:
     genre_tag_movies["tag_score"] = 0
 
+# ---------- TOTAL SCORE ----------
 genre_tag_movies["total_score"] = (
     genre_tag_movies["genre_score"] +
     genre_tag_movies["tag_score"]
 )
 
-if selected_genres or tag_search:
+if selected_genres or selected_tags:
     ranked_movies = genre_tag_movies[
         genre_tag_movies["total_score"] > 0
     ].sort_values(by="total_score", ascending=False)

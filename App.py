@@ -47,7 +47,7 @@ def get_poster(tmdb_id):
         data = r.json()
         poster_path = data.get("poster_path")
         if poster_path:
-            return f"https://image.tmdb.org/t/p/w200{poster_path}"
+            return f"https://image.tmdb.org/t/p/w400{poster_path}"  # doubled size
     except Exception:
         return None
     return None
@@ -122,15 +122,15 @@ if selected_genres or selected_tags:
     ].sort_values(by=["avg_rating", "rating_count"], ascending=False)
 
     for _, row in ranked_movies.head(15).iterrows():
-        cols = st.columns([1, 4])
         poster = get_poster(row["tmdbId"])
-        with cols[0]:
-            if poster:
-                st.image(poster, width=120)
-        with cols[1]:
+        if poster:
             st.markdown(
-                f"**{row['title']}**  \n"
+                f"<div style='text-align:center'>"
+                f"<img src='{poster}' width='300'><br>"
+                f"<strong>{row['title']}</strong><br>"
                 f"⭐ {row['avg_rating']:.2f} ({int(row['rating_count'])} ratings)"
+                f"</div>",
+                unsafe_allow_html=True
             )
 
 st.divider()
@@ -167,7 +167,7 @@ if st.session_state.user_ratings:
         st.write(f"{title}: {r}")
 
 # =========================================================
-# COLLAB RECOMMENDATIONS (Responsive Poster Grid)
+# COLLAB RECOMMENDATIONS
 # =========================================================
 if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
 
@@ -190,29 +190,19 @@ if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
     movie_scores = fav_movies["movieId"].value_counts()
     movie_scores = movie_scores[
         ~movie_scores.index.isin(st.session_state.user_ratings.keys())
-    ].head(12)  # max 12 recommendations
+    ].head(12)
 
     st.subheader("Recommended Movies")
 
     rec_movies = [movies[movies["movieId"] == m_id].iloc[0] for m_id in movie_scores.index]
 
-    # Responsive: 1 poster per row for <3, 2 per row for 3-6, 3 per row for 6+
-    total_movies = len(rec_movies)
-    if total_movies <= 3:
-        num_cols = total_movies
-        poster_width = 250
-    elif total_movies <= 6:
-        num_cols = 2
-        poster_width = 220
-    else:
-        num_cols = 3
-        poster_width = 180
-
-    for i in range(0, len(rec_movies), num_cols):
-        cols = st.columns(num_cols, gap="small")
-        for j, row in enumerate(rec_movies[i:i+num_cols]):
-            poster = get_poster(row["tmdbId"])
-            with cols[j]:
-                if poster:
-                    st.image(poster, width=poster_width)
-                st.markdown(f"**{row['title']}**")
+    for row in rec_movies:
+        poster = get_poster(row["tmdbId"])
+        if poster:
+            st.markdown(
+                f"<div style='text-align:center'>"
+                f"<img src='{poster}' width='300'><br>"
+                f"<strong>{row['title']}</strong>"
+                f"</div>",
+                unsafe_allow_html=True
+            )

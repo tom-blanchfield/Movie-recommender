@@ -37,4 +37,5 @@ def load_data():
     return ratings, movies, tags, links
 
 ratings, movies, tags, links = load_data()
-movies["genres"] = mov
+
+movies["genres"] = movies["genres"].fillna("")

@@ -80,7 +80,7 @@ if "user_ratings" not in st.session_state:
 # =========================================================
 # GENRE + TAG DISCOVERY
 # =========================================================
-st.subheader("Discover Movies by Genre & Keywords")
+st.subheader("Discover Movies by Genres or Keywords")
 
 selected_genres = st.multiselect("Genres", all_genres)
 

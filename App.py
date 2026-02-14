@@ -12,10 +12,10 @@ TMDB_API_KEY = "888bb40cd1f4d3c95b375753e9c34c09"
 
 @st.cache_data(show_spinner=False)
 def get_poster(tmdb_id):
-    """Fetch TMDb poster for a movie, safely."""
-    if pd.isna(tmdb_id):
-        return None
+    """Safely fetch TMDb poster, return None if anything goes wrong"""
     try:
+        if pd.isna(tmdb_id) or tmdb_id == "":
+            return None
         url = f"https://api.themoviedb.org/3/movie/{int(tmdb_id)}?api_key={TMDB_API_KEY}"
         r = requests.get(url, timeout=5)
         if r.status_code != 200:
@@ -31,36 +31,27 @@ def get_poster(tmdb_id):
 # ---------- LOAD DATA ----------
 @st.cache_data
 def load_data():
-    ratings = pd.read_csv("ratings.csv")
-    movies = pd.read_csv("movies.csv")
-    tags = pd.read_csv("tags.csv")
-    links = pd.read_csv("links.csv")
-    return ratings, movies, tags, links
+    try:
+        ratings = pd.read_csv("ratings.csv")
+        movies = pd.read_csv("movies.csv")
+        tags = pd.read_csv("tags.csv")
+        links = pd.read_csv("links.csv")
+        return ratings, movies, tags, links
+    except Exception as e:
+        st.error(f"Error loading CSV files: {e}")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 ratings, movies, tags, links = load_data()
+
+# Quick check to ensure files loaded
+st.write("CSV shapes:", ratings.shape, movies.shape, tags.shape, links.shape)
+
+if not all([not df.empty for df in [ratings, movies, tags, links]]):
+    st.stop()
+
 movies["genres"] = movies["genres"].fillna("")
 movies = movies.merge(links, on="movieId", how="left")
 
 # ---------- RATING STATS ----------
 rating_stats = ratings.groupby("movieId")["rating"].agg(["mean","count"]).reset_index()
-rating_stats.columns = ["movieId","avg_rating","rating_count"]
-movies = movies.merge(rating_stats, on="movieId", how="left")
-movies["avg_rating"] = movies["avg_rating"].fillna(0)
-movies["rating_count"] = movies["rating_count"].fillna(0)
-MIN_RATINGS = 20
-
-# ---------- GENRE LIST ----------
-all_genres = sorted(set(g for sub in movies["genres"].str.split("|") for g in sub if g and g != "(no genres listed)"))
-
-# ---------- TOP 50% USERS ----------
-user_counts = ratings["userId"].value_counts()
-top_users = user_counts.head(int(len(user_counts)*0.50)).index
-ratings_top = ratings[ratings["userId"].isin(top_users)]
-
-user_movie_matrix = ratings_top.pivot_table(index="userId", columns="movieId", values="rating").fillna(0)
-
-# ---------- SESSION STATE ----------
-if "user_ratings" not in st.session_state:
-    st.session_state.user_ratings = {}
-
-# =================================
+rating_stats.columns_

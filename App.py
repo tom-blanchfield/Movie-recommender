@@ -58,4 +58,102 @@ selected_movie = st.selectbox(
     filtered_movies["title"] if not filtered_movies.empty else ["No results"]
 )
 
-rating_value = st.slider("Your rating", 1, 5, 3)_
+# FIXED LINE (no underscore)
+rating_value = st.slider("Your rating", 1, 5, 3)
+
+if st.button("Add Rating") and not filtered_movies.empty:
+    movie_id = int(
+        movies[movies["title"] == selected_movie]["movieId"].values[0]
+    )
+    st.session_state.user_ratings[movie_id] = int(rating_value)
+
+# ---------- SHOW USER RATINGS ----------
+if st.session_state.user_ratings:
+    st.write("### Your Ratings")
+    for m_id, r in st.session_state.user_ratings.items():
+        title = movies[movies["movieId"] == m_id]["title"].values[0]
+        st.write(f"{title}: {r}")
+
+# =========================================================
+# GENRE + TAG DISCOVERY
+# =========================================================
+st.divider()
+st.subheader("Discover by Genre & Tags")
+
+selected_genres = st.multiselect("Select Genres", all_genres)
+tag_search = st.text_input("Optional Tag Keyword")
+
+genre_tag_movies = movies.copy()
+
+if selected_genres:
+    genre_tag_movies["genre_score"] = genre_tag_movies["genres"].apply(
+        lambda g: sum(1 for sel in selected_genres if sel in g)
+    )
+else:
+    genre_tag_movies["genre_score"] = 0
+
+if tag_search:
+    tag_filtered = tags[
+        tags["tag"].str.contains(tag_search, case=False, na=False)
+    ]
+    tag_counts = tag_filtered["movieId"].value_counts()
+    genre_tag_movies["tag_score"] = genre_tag_movies["movieId"].map(tag_counts).fillna(0)
+else:
+    genre_tag_movies["tag_score"] = 0
+
+genre_tag_movies["total_score"] = (
+    genre_tag_movies["genre_score"] +
+    genre_tag_movies["tag_score"]
+)
+
+if selected_genres or tag_search:
+    ranked_movies = genre_tag_movies[
+        genre_tag_movies["total_score"] > 0
+    ].sort_values(by="total_score", ascending=False)
+
+    st.write("### Matching Movies")
+    for _, row in ranked_movies.head(25).iterrows():
+        st.write(f"• {row['title']} (Score: {int(row['total_score'])})")
+
+# =========================================================
+# COLLABORATIVE RECOMMENDATIONS
+# =========================================================
+st.divider()
+
+if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
+
+    user_vector = np.zeros(user_movie_matrix.shape[1])
+
+    movie_id_to_index = {
+        int(m): i for i, m in enumerate(user_movie_matrix.columns)
+    }
+
+    for m_id, r in st.session_state.user_ratings.items():
+        if m_id in movie_id_to_index:
+            user_vector[movie_id_to_index[m_id]] = r
+
+    similarities = cosine_similarity(
+        [user_vector],
+        user_movie_matrix.values
+    )[0]
+
+    similar_users_idx = np.argsort(similarities)[-10:]
+    similar_user_ids = user_movie_matrix.index[similar_users_idx]
+
+    fav_movies = ratings_top[
+        (ratings_top["userId"].isin(similar_user_ids)) &
+        (ratings_top["rating"] >= 4)
+    ]
+
+    movie_scores = fav_movies["movieId"].value_counts()
+
+    movie_scores = movie_scores[
+        ~movie_scores.index.isin(st.session_state.user_ratings.keys())
+    ]
+
+    movie_scores = movie_scores.head(20)
+
+    rec_movies = movies.set_index("movieId").loc[movie_scores.index]
+
+    st.subheader("Recommended Movies")
+    for

@@ -19,7 +19,11 @@ def load_data():
     links = pd.read_csv("links.csv")
     return ratings, movies, tags, links
 
-ratings, movies, tags, links = load_data()
+try:
+    ratings, movies, tags, links = load_data()
+except Exception as e:
+    st.error(f"Error loading CSVs: {e}")
+    st.stop()
 
 movies["genres"] = movies["genres"].fillna("")
 movies = movies.merge(links, on="movieId", how="left")
@@ -48,7 +52,7 @@ def get_poster(tmdb_id):
         poster_path = data.get("poster_path")
         if poster_path:
             return f"https://image.tmdb.org/t/p/w200{poster_path}"
-    except Exception:
+    except:
         return None
     return None
 
@@ -65,18 +69,4 @@ all_genres = sorted(
 # ---------- TOP 50% USERS ----------
 user_counts = ratings["userId"].value_counts()
 top_users = user_counts.head(int(len(user_counts) * 0.50)).index
-ratings_top = ratings[ratings["userId"].isin(top_users)]
-
-user_movie_matrix = ratings_top.pivot_table(
-    index="userId",
-    columns="movieId",
-    values="rating"
-).fillna(0)
-
-# ---------- SESSION STATE ----------
-if "user_ratings" not in st.session_state:
-    st.session_state.user_ratings = {}
-
-# =========================================================
-# GENRE + TAG DISCOVERY
-# =======================
+rat

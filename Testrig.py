@@ -81,7 +81,7 @@ if st.button("Run Evaluation"):
             actuals.append(true_rating)
 
         if preds:
-            rmse = mean_squared_error(actuals, preds, squared=False)
+            rmse
             rmses.append(rmse)
 
     if rmses:

@@ -173,7 +173,7 @@ if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
             user_vector[movie_id_to_index[m_id]] = r
 
     similarities = cosine_similarity([user_vector], user_movie_matrix.values)[0]
-    similar_users_idx = np.argsort(similarities)[-10:]
+    similar_users_idx = np.argsort(similarities)[-20:]
     similar_user_ids = user_movie_matrix.index[similar_users_idx]
 
     fav_movies = ratings_top[

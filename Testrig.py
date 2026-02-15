@@ -2,120 +2,131 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.metrics import mean_squared_error
 
 st.set_page_config(page_title="Recommender Test Rig", layout="wide")
 st.title("🎯 Recommender Test Rig")
 
-# ---------- LOAD DATA ----------
+# -------------------- LOAD DATA --------------------
 @st.cache_data
 def load_data():
-    ratings = pd.read_csv("ratings.csv")
-    movies = pd.read_csv("movies.csv")
-    return ratings, movies
+    try:
+        ratings = pd.read_csv("ratings.csv")
+        movies = pd.read_csv("movies.csv")
+        return ratings, movies
+    except Exception as e:
+        st.error(f"Error loading CSV files: {e}")
+        return None, None
 
 ratings, movies = load_data()
 
-# ---------- SIDEBAR CONTROLS ----------
-st.sidebar.header("Test Rig Parameters")
+if ratings is None or movies is None:
+    st.stop()
 
-num_test_users = st.sidebar.slider("Number of test users", min_value=5, max_value=50, value=20, step=5)
-num_ratings_used = st.sidebar.slider("Ratings per test user", min_value=5, max_value=50, value=10, step=5)
-num_neighbors = st.sidebar.slider("Number of cosine neighbors", min_value=1, max_value=20, value=5, step=1)
-top_n_precision = st.sidebar.slider("Top N for Precision@N", min_value=1, max_value=20, value=5)
+# -------------------- USER CONTROLS --------------------
+st.sidebar.header("Test Parameters")
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("Weights: Weighted average uses similarity scores to weight neighbors' ratings.")
+num_test_users = st.sidebar.slider("Number of test users", 5, 50, 20)
+ratings_per_user = st.sidebar.slider("Ratings used for prediction", 5, 50, 10)
+num_neighbors = st.sidebar.slider("Cosine neighbors", 3, 30, 5)
+min_movie_ratings = st.sidebar.slider("Min movie ratings", 5, 100, 20)
 
-# ---------- PREPARE USER-MOVIE MATRIX ----------
+# -------------------- FILTER MOVIES --------------------
+movie_counts = ratings["movieId"].value_counts()
+valid_movies = movie_counts[movie_counts >= min_movie_ratings].index
+ratings = ratings[ratings["movieId"].isin(valid_movies)]
+
+# -------------------- BUILD MATRIX --------------------
 user_movie_matrix = ratings.pivot_table(
     index="userId",
     columns="movieId",
     values="rating"
-).fillna(0)
+)
 
-all_user_ids = user_movie_matrix.index.tolist()
-all_movie_ids = user_movie_matrix.columns.tolist()
+# Mean-center
+user_means = user_movie_matrix.mean(axis=1)
+user_movie_centered = user_movie_matrix.sub(user_means, axis=0).fillna(0)
 
-# ---------- SELECT RANDOM TEST USERS ----------
-np.random.seed(42)
-test_user_ids = np.random.choice(all_user_ids, size=num_test_users, replace=False)
+# -------------------- SELECT TEST USERS --------------------
+all_users = user_movie_matrix.index.tolist()
+np.random.shuffle(all_users)
+test_users = all_users[:num_test_users]
 
-# ---------- RESULTS ----------
-rmse_list = []
-precision_list = []
+st.write(f"Testing **{len(test_users)} users**")
 
-for uid in test_user_ids:
-    user_ratings = user_movie_matrix.loc[uid]
-    rated_movies = user_ratings[user_ratings > 0].index.tolist()
+# -------------------- TEST LOOP --------------------
+rmse_results = []
 
-    if len(rated_movies) <= num_ratings_used:
-        train_movies = rated_movies[:-1]  # leave at least 1 for testing
-    else:
-        train_movies = np.random.choice(rated_movies, size=num_ratings_used, replace=False).tolist()
+for user_id in test_users:
 
-    test_movies = [m for m in rated_movies if m not in train_movies]
+    user_ratings = user_movie_matrix.loc[user_id].dropna()
 
-    # Build user vector for train movies
-    user_vector = np.zeros(len(all_movie_ids))
-    movie_id_to_index = {m: i for i, m in enumerate(all_movie_ids)}
+    if len(user_ratings) < ratings_per_user + 1:
+        continue
 
-    for m in train_movies:
-        user_vector[movie_id_to_index[m]] = user_movie_matrix.loc[uid, m]
+    known = user_ratings.sample(ratings_per_user, random_state=42)
+    unknown = user_ratings.drop(known.index)
 
-    # Compute similarities with other users
-    similarities = cosine_similarity([user_vector], user_movie_matrix.values)[0]
+    # Build user vector
+    user_vector = np.zeros(user_movie_centered.shape[1])
+    movie_id_to_index = {
+        m: i for i, m in enumerate(user_movie_centered.columns)
+    }
 
-    # Exclude the user themselves
-    similarities[all_user_ids.index(uid)] = -1
+    for m_id, r in known.items():
+        if m_id in movie_id_to_index:
+            idx = movie_id_to_index[m_id]
+            user_vector[idx] = r - user_means[user_id]
 
-    # Find top neighbors
-    neighbor_indices = np.argsort(similarities)[-num_neighbors:]
-    neighbor_sims = similarities[neighbor_indices]
-    neighbor_ids = user_movie_matrix.index[neighbor_indices]
+    # Cosine similarity
+    sims = cosine_similarity(
+        [user_vector],
+        user_movie_centered.values
+    )[0]
 
-    # Predict ratings for test movies
+    neighbor_idx = np.argsort(sims)[-num_neighbors:]
+    neighbor_ids = user_movie_centered.index[neighbor_idx]
+    neighbor_sims = sims[neighbor_idx]
+
     preds = []
     actuals = []
 
-    for m in test_movies:
-        neighbor_ratings = []
-        weights = []
+    for movie_id, actual_rating in unknown.items():
 
-        for n_idx, n_id in zip(neighbor_indices, neighbor_ids):
-            rating = user_movie_matrix.loc[n_id, m]
-            if rating > 0:
-                neighbor_ratings.append(rating)
-                weights.append(similarities[n_idx])
+        if movie_id not in movie_id_to_index:
+            continue
 
-        if neighbor_ratings:
-            # Weighted average
-            pred = np.dot(neighbor_ratings, weights) / np.sum(weights)
-            preds.append(pred)
-            actuals.append(user_movie_matrix.loc[uid, m])
+        m_idx = movie_id_to_index[movie_id]
 
-    if preds:
-        # RMSE
-        rmse = mean_squared_error(actuals, preds, squared=False)
-        rmse_list.append(rmse)
+        weighted_sum = 0
+        sim_sum = 0
 
-        # Precision@N
-        top_pred_idx = np.argsort(preds)[-top_n_precision:]
-        top_actual_idx = np.argsort(actuals)[-top_n_precision:]
-        # Compute number of overlaps
-        precision = len(set(top_pred_idx).intersection(set(top_actual_idx))) / top_n_precision
-        precision_list.append(precision)
+        for n_id, sim in zip(neighbor_ids, neighbor_sims):
+            neighbor_rating = user_movie_centered.loc[n_id].iloc[m_idx]
+            if neighbor_rating != 0:
+                weighted_sum += sim * neighbor_rating
+                sim_sum += abs(sim)
 
-# ---------- DISPLAY RESULTS ----------
-st.subheader("Test Rig Results")
-st.write(f"Tested {num_test_users} users using {num_ratings_used} ratings each and {num_neighbors} neighbors.")
+        if sim_sum == 0:
+            continue
 
-if rmse_list:
-    st.write(f"✅ Average RMSE: {np.mean(rmse_list):.3f}")
-    st.write(f"✅ Median RMSE: {np.median(rmse_list):.3f}")
+        pred_centered = weighted_sum / sim_sum
+        pred = pred_centered + user_means[user_id]
+
+        preds.append(pred)
+        actuals.append(actual_rating)
+
+    if len(preds) > 0:
+        mse = np.mean((np.array(actuals) - np.array(preds)) ** 2)
+        rmse = np.sqrt(mse)
+        rmse_results.append(rmse)
+
+# -------------------- RESULTS --------------------
+st.divider()
+st.subheader("Results")
+
+if rmse_results:
+    avg_rmse = np.mean(rmse_results)
+    st.write(f"Average RMSE: **{avg_rmse:.4f}**")
+    st.write(f"Users evaluated: **{len(rmse_results)}**")
 else:
-    st.write("⚠️ No predictions could be made with current settings.")
-
-if precision_list:
-    st.write(f"✅ Average Precision@{top_n_precision}: {np.mean(precision_list):.3f}")
-    st.write(f"✅ Median Precision@{top_n_precision}: {np.median(precision_list):.3f}")
+    st.write("Not enough data to evaluate.")

@@ -4,6 +4,7 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.metrics import mean_squared_error
 import random
+import os
 
 st.set_page_config(layout="wide")
 st.title("Recommender Evaluation Lab (App Algorithm vs. Baseline)")
@@ -11,8 +12,14 @@ st.title("Recommender Evaluation Lab (App Algorithm vs. Baseline)")
 # ---------- LOAD DATA ----------
 @st.cache_data
 def load_data():
-    ratings = pd.read_csv("ratings.csv")
-    return ratings  # <-- only ratings, not movies
+    file_path = "ratings.csv"
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Could not find {file_path} in {os.getcwd()}")
+    
+    ratings = pd.read_csv(file_path)
+    if ratings.empty:
+        raise ValueError(f"{file_path} is empty!")
+    return ratings
 
 ratings = load_data()  # <-- only one variable
 
@@ -38,7 +45,6 @@ if st.button("Run Evaluation"):
     test_users = random.sample(all_users, num_test_users)
 
     for test_user in test_users:
-
         user_ratings = ratings[ratings["userId"] == test_user]
 
         if len(user_ratings) <= num_known_ratings:
@@ -99,7 +105,7 @@ if st.button("Run Evaluation"):
             rmse_app = mean_squared_error(actuals, preds_app, squared=False)
             rmses_app.append(rmse_app)
 
-        # ---------- BASELINE PREDICTIONS (simple mean of neighbors) ----------
+        # ---------- BASELINE PREDICTIONS (simple mean) ----------
         preds_base = []
         actuals_base = []
 

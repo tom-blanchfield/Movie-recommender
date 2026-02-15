@@ -33,6 +33,7 @@ movies["avg_rating"] = movies["avg_rating"].fillna(0)
 movies["rating_count"] = movies["rating_count"].fillna(0)
 
 MIN_RATINGS = 20
+MIN_OVERLAP = 5   # <-- new
 
 # ---------- POSTER FETCH FUNCTION ----------
 @st.cache_data(show_spinner=False)
@@ -62,28 +63,26 @@ all_genres = sorted(
     )
 )
 
-# ---------- TOP 50% USERS ----------
-user_counts = ratings["userId"].value_counts()
-top_users = user_counts.head(int(len(user_counts) * 1.0)).index
-ratings_top = ratings[ratings["userId"].isin(top_users)]
-
-user_movie_matrix = ratings_top.pivot_table(
+# ---------- USER MATRICES ----------
+user_movie_matrix = ratings.pivot_table(
     index="userId",
     columns="movieId",
     values="rating"
-).fillna(0)
+)
+
+user_means = user_movie_matrix.mean(axis=1)
+mean_centered = user_movie_matrix.sub(user_means, axis=0).fillna(0)
 
 # ---------- SESSION STATE ----------
 if "user_ratings" not in st.session_state:
     st.session_state.user_ratings = {}
 
 # =========================================================
-# DISCOVER MOVIES
+# DISCOVER MOVIES (UNCHANGED)
 # =========================================================
 st.subheader("Discover Movies")
 
 mode = st.selectbox("Choose recommendation mode", ["Genres", "Keywords"])
-
 genre_tag_movies = movies.copy()
 
 if mode == "Genres":
@@ -118,7 +117,7 @@ if (mode == "Genres" and selected_genres) or (mode == "Keywords" and selected_ta
         (genre_tag_movies["rating_count"] >= MIN_RATINGS)
     ].sort_values(by=["avg_rating", "rating_count"], ascending=False)
 
-    for _, row in ranked_movies.head(30).iterrows():  # <- 30 recommendations
+    for _, row in ranked_movies.head(30).iterrows():
         poster = get_poster(row["tmdbId"])
         if poster:
             st.markdown(
@@ -133,27 +132,24 @@ if (mode == "Genres" and selected_genres) or (mode == "Keywords" and selected_ta
 st.divider()
 
 # =========================================================
-# RATE MOVIES WITH SINGLE DYNAMIC SELECTBOX
+# RATE MOVIES (UNCHANGED)
 # =========================================================
 st.subheader("Rate Movies")
 
 movie_search = st.text_input("Type part of a movie title")
 
-# Dynamically filter movies based on input
 if movie_search:
     filtered_titles = movies[movies["title"].str.contains(movie_search, case=False, na=False)]["title"].tolist()
 else:
     filtered_titles = []
 
 selected_movie = st.selectbox("Select movie", options=filtered_titles if filtered_titles else ["No results"])
-
 rating_value = st.slider("Rating", 1, 5, 3)
 
 if st.button("Add Rating") and filtered_titles:
     movie_id = int(movies[movies["title"] == selected_movie]["movieId"].values[0])
     st.session_state.user_ratings[movie_id] = int(rating_value)
 
-# Display user ratings
 if st.session_state.user_ratings:
     st.write("### Your Ratings")
     for m_id, r in st.session_state.user_ratings.items():
@@ -161,36 +157,59 @@ if st.session_state.user_ratings:
         st.write(f"{title}: {r}")
 
 # =========================================================
-# COLLAB RECOMMENDATIONS
+# IMPROVED COLLAB RECOMMENDATIONS
 # =========================================================
 if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
 
-    user_vector = np.zeros(user_movie_matrix.shape[1])
-    movie_id_to_index = {int(m): i for i, m in enumerate(user_movie_matrix.columns)}
-
+    # Build target user vector
+    user_vector = pd.Series(0, index=mean_centered.columns, dtype=float)
     for m_id, r in st.session_state.user_ratings.items():
-        if m_id in movie_id_to_index:
-            user_vector[movie_id_to_index[m_id]] = r
+        if m_id in user_vector.index:
+            user_vector[m_id] = r
 
-    similarities = cosine_similarity([user_vector], user_movie_matrix.values)[0]
-    similar_users_idx = np.argsort(similarities)[-20:]
-    similar_user_ids = user_movie_matrix.index[similar_users_idx]
+    target_mean = user_vector[user_vector > 0].mean()
+    user_vector = user_vector - target_mean
+    user_vector = user_vector.fillna(0)
 
-    fav_movies = ratings_top[
-        (ratings_top["userId"].isin(similar_user_ids)) &
-        (ratings_top["rating"] >= 4)
-    ]
+    # Cosine similarity
+    similarities = cosine_similarity([user_vector], mean_centered.values)[0]
 
-    movie_scores = fav_movies["movieId"].value_counts()
-    movie_scores = movie_scores[
-        ~movie_scores.index.isin(st.session_state.user_ratings.keys())
-    ].head(30)  # <- 30 recommendations
+    # Overlap filter
+    overlaps = (mean_centered != 0).dot((user_vector != 0).astype(int))
+    valid_users = np.where(overlaps >= MIN_OVERLAP)[0]
+
+    similarities_filtered = similarities[valid_users]
+    top_idx = valid_users[np.argsort(similarities_filtered)[-20:]]
+
+    # Weighted predictions
+    preds = {}
+    for movie_id in mean_centered.columns:
+        if movie_id in st.session_state.user_ratings:
+            continue
+
+        num = 0
+        den = 0
+
+        for idx in top_idx:
+            sim = similarities[idx]
+            if sim <= 0:
+                continue
+
+            rating = mean_centered.iloc[idx][movie_id]
+            if rating != 0:
+                num += sim * rating
+                den += abs(sim)
+
+        if den > 0:
+            pred = target_mean + (num / den)
+            preds[movie_id] = pred
+
+    top_movies = sorted(preds.items(), key=lambda x: x[1], reverse=True)[:30]
 
     st.subheader("Recommended Movies")
 
-    rec_movies = [movies[movies["movieId"] == m_id].iloc[0] for m_id in movie_scores.index]
-
-    for row in rec_movies:
+    for m_id, _ in top_movies:
+        row = movies[movies["movieId"] == m_id].iloc[0]
         poster = get_poster(row["tmdbId"])
         if poster:
             st.markdown(

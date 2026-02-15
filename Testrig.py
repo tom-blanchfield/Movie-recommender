@@ -21,7 +21,7 @@ def load_data():
         raise ValueError(f"{file_path} is empty!")
     return ratings
 
-ratings = load_data()  # <-- only one variable
+ratings = load_data()
 
 # ---------- USER MATRICES ----------
 user_movie_matrix = ratings.pivot_table(index="userId", columns="movieId", values="rating")
@@ -102,7 +102,7 @@ if st.button("Run Evaluation"):
                 actuals.append(true_rating)
 
         if preds_app:
-            rmse_app = mean_squared_error(actuals, preds_app, squared=False)
+            rmse_app = np.sqrt(mean_squared_error(actuals, preds_app))
             rmses_app.append(rmse_app)
 
         # ---------- BASELINE PREDICTIONS (simple mean) ----------
@@ -126,7 +126,7 @@ if st.button("Run Evaluation"):
             actuals_base.append(true_rating)
 
         if preds_base:
-            rmse_base = mean_squared_error(actuals_base, preds_base, squared=False)
+            rmse_base = np.sqrt(mean_squared_error(actuals_base, preds_base))
             rmses_baseline.append(rmse_base)
 
     if rmses_app and rmses_baseline:

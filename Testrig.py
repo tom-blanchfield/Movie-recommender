@@ -83,7 +83,7 @@ if st.button("Run Evaluation"):
         if preds:
             
            rmse = mean_squared_error(actuals, preds)
-           rmse = np.sqrt(mse)
+           rmse = np.sqrt(rmse)
            rmses.append(rmse)
 
     if rmses:

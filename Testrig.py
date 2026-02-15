@@ -12,10 +12,9 @@ st.title("Recommender Evaluation Lab (App Algorithm vs. Baseline)")
 @st.cache_data
 def load_data():
     ratings = pd.read_csv("ratings.csv")
-    movies = pd.read_csv("movies.csv")
-    return ratings, movies
+    return ratings  # <-- only ratings, not movies
 
-ratings, movies = load_data()
+ratings = load_data()  # <-- only one variable
 
 # ---------- USER MATRICES ----------
 user_movie_matrix = ratings.pivot_table(index="userId", columns="movieId", values="rating")

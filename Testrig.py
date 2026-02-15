@@ -2,92 +2,116 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.metrics import mean_squared_error
 import random
 
-st.set_page_config(layout="wide")
-st.title("Recommender Evaluation Lab")
+st.set_page_config(page_title="Recommender Test Rig", layout="wide")
+st.title("🧪 Movie Recommender Test Rig")
 
+# -------------------- LOAD DATA --------------------
 @st.cache_data
 def load_data():
     ratings = pd.read_csv("ratings.csv")
-    return ratings
+    movies = pd.read_csv("movies.csv")
+    return ratings, movies
 
-ratings = load_data()
+ratings, movies = load_data()
 
-# ---------- USER-MOVIE MATRIX ----------
+# -------------------- PARAMETERS --------------------
+st.sidebar.header("Test Parameters")
+
+num_test_users = st.sidebar.slider("Number of test users", 5, 50, 20)
+ratings_used = st.sidebar.slider("Ratings per test user", 5, 30, 10)
+num_neighbors = st.sidebar.slider("Cosine neighbours", 3, 30, 5)
+min_overlap = st.sidebar.slider("Minimum overlap", 1, 20, 5)
+
+# -------------------- USER MATRIX --------------------
 user_movie_matrix = ratings.pivot_table(
     index="userId",
     columns="movieId",
     values="rating"
-).fillna(0)
+)
+
+user_means = user_movie_matrix.mean(axis=1)
+mean_centered = user_movie_matrix.sub(user_means, axis=0).fillna(0)
 
 all_users = user_movie_matrix.index.tolist()
 
-# ---------- CONTROLS ----------
-num_test_users = st.slider("Number of Test Users", 5, 50, 10)
-num_known_ratings = st.slider("Known Ratings per User", 5, 50, 10)
-num_neighbors = st.slider("Number of Cosine Neighbours", 5, 50, 20)
+# -------------------- RMSE FUNCTION --------------------
+def rmse(actuals, preds):
+    actuals = np.array(actuals)
+    preds = np.array(preds)
+    return np.sqrt(np.mean((actuals - preds) ** 2))
 
-# ---------- EVALUATION ----------
-if st.button("Run Evaluation"):
-
-    rmses = []
+# -------------------- TEST BUTTON --------------------
+if st.button("Run Test"):
 
     test_users = random.sample(all_users, num_test_users)
+    user_rmses = []
 
-    for test_user in test_users:
+    progress = st.progress(0)
 
-        user_ratings = ratings[ratings["userId"] == test_user]
+    for idx, user_id in enumerate(test_users):
 
-        if len(user_ratings) <= num_known_ratings:
+        user_row = user_movie_matrix.loc[user_id].dropna()
+
+        if len(user_row) <= ratings_used + 1:
             continue
 
-        user_ratings = user_ratings.sample(frac=1)
+        known_ratings = user_row.sample(ratings_used)
+        hidden_ratings = user_row.drop(known_ratings.index)
 
-        train = user_ratings.head(num_known_ratings)
-        test = user_ratings.tail(len(user_ratings) - num_known_ratings)
+        # Build target vector
+        target_vector = pd.Series(0, index=mean_centered.columns, dtype=float)
+        target_vector[known_ratings.index] = known_ratings.values
 
-        # ---------- BUILD USER VECTOR ----------
-        user_vector = np.zeros(user_movie_matrix.shape[1])
-        movie_index_map = {m:i for i,m in enumerate(user_movie_matrix.columns)}
+        target_mean = known_ratings.mean()
+        target_vector = target_vector - target_mean
+        target_vector = target_vector.fillna(0)
 
-        for _, row in train.iterrows():
-            if row["movieId"] in movie_index_map:
-                user_vector[movie_index_map[row["movieId"]]] = row["rating"]
+        # Cosine similarity
+        similarities = cosine_similarity([target_vector], mean_centered.values)[0]
 
-        # ---------- COSINE SIMILARITY ----------
-        sims = cosine_similarity([user_vector], user_movie_matrix.values)[0]
-        neighbor_ids = user_movie_matrix.index[np.argsort(sims)[-num_neighbors:]]
+        # Overlap filter
+        overlaps = (mean_centered != 0).dot((target_vector != 0).astype(int))
+        valid_users = np.where(overlaps >= min_overlap)[0]
+
+        if len(valid_users) == 0:
+            continue
+
+        sims_filtered = similarities[valid_users]
+        top_indices = valid_users[np.argsort(sims_filtered)[-num_neighbors:]]
 
         preds = []
         actuals = []
 
-        for _, row in test.iterrows():
-            m_id = row["movieId"]
-            true_rating = row["rating"]
+        for movie_id, actual_rating in hidden_ratings.items():
 
-            neighbor_ratings = ratings[
-                (ratings["userId"].isin(neighbor_ids)) &
-                (ratings["movieId"] == m_id)
-            ]["rating"]
+            num = 0
+            den = 0
 
-            if len(neighbor_ratings) == 0:
-                continue
+            for u_idx in top_indices:
+                sim = similarities[u_idx]
+                if sim <= 0:
+                    continue
 
-            pred_rating = neighbor_ratings.mean()
+                rating = mean_centered.iloc[u_idx][movie_id]
+                if rating != 0:
+                    num += sim * rating
+                    den += abs(sim)
 
-            preds.append(pred_rating)
-            actuals.append(true_rating)
+            if den > 0:
+                pred_rating = target_mean + (num / den)
+                preds.append(pred_rating)
+                actuals.append(actual_rating)
 
-        if preds:
-            mse = mean_squared_error(actuals, preds)
-            rmse = np.sqrt(mse)
+        if len(preds) > 0:
+            user_rmses.append(rmse(actuals, preds))
 
-            rmses.append(rmse)
+        progress.progress((idx + 1) / len(test_users))
 
-    if rmses:
-        st.success(f"Average RMSE: {np.mean(rmses):.3f}")
-        st.write("Individual RMSEs:", rmses)
+    if user_rmses:
+        avg_rmse = np.mean(user_rmses)
+        st.success(f"Average RMSE: {avg_rmse:.3f}")
+        st.write(f"Users evaluated: {len(user_rmses)}")
     else:
-        st.warning("Not enough data to evaluate.")
+        st.error("No valid users evaluated — try lowering overlap or ratings used.")

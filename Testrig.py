@@ -81,8 +81,10 @@ if st.button("Run Evaluation"):
             actuals.append(true_rating)
 
         if preds:
-            rmse = mean_squared_error(actuals, preds, squared=False)
-            rmses.append(rmse)
+            
+           rmse = mean_squared_error(actuals, preds)
+           rmse = np.sqrt(mse)
+           rmses.append(rmse)
 
     if rmses:
         st.success(f"Average RMSE: {np.mean(rmses):.3f}")

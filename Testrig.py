@@ -36,7 +36,7 @@ num_known_ratings = st.sidebar.slider("Known ratings per user (train)", 1, 50, 1
 num_neighbors = st.sidebar.slider("Number of cosine neighbours", 1, 50, 5)
 min_overlap = st.sidebar.slider("Minimum overlap (shared movies)", 1, 20, 5)
 min_neighbor_ratings = st.sidebar.slider("Minimum ratings for neighbor users", 1, 50, 10)
-nmf_factors = st.sidebar.slider("NMF latent factors", 2, 50, 10)
+nmf_factors = st.sidebar.slider("NMF latent factors", 2, 200, 10)
 random_seed = st.sidebar.number_input("Random seed", value=42, step=1)
 
 # ---------- UTILS ----------

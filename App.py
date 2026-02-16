@@ -32,8 +32,9 @@ movies = movies.merge(rating_stats, on="movieId", how="left")
 movies["avg_rating"] = movies["avg_rating"].fillna(0)
 movies["rating_count"] = movies["rating_count"].fillna(0)
 
-MIN_RATINGS = 20
-MIN_OVERLAP = 5   # <-- new
+MIN_RATINGS = 20          # discovery panel
+MIN_REC_RATINGS = 10      # collaborative + discovery minimum
+MIN_OVERLAP = 5
 
 # ---------- POSTER FETCH FUNCTION ----------
 @st.cache_data(show_spinner=False)
@@ -78,7 +79,7 @@ if "user_ratings" not in st.session_state:
     st.session_state.user_ratings = {}
 
 # =========================================================
-# DISCOVER MOVIES (UNCHANGED)
+# DISCOVER MOVIES
 # =========================================================
 st.subheader("Discover Movies")
 
@@ -114,7 +115,7 @@ genre_tag_movies["total_score"] = genre_tag_movies["genre_score"] + genre_tag_mo
 if (mode == "Genres" and selected_genres) or (mode == "Keywords" and selected_tags):
     ranked_movies = genre_tag_movies[
         (genre_tag_movies["total_score"] > 0) &
-        (genre_tag_movies["rating_count"] >= MIN_RATINGS)
+        (genre_tag_movies["rating_count"] >= MIN_REC_RATINGS)
     ].sort_values(by=["avg_rating", "rating_count"], ascending=False)
 
     for _, row in ranked_movies.head(30).iterrows():
@@ -132,7 +133,7 @@ if (mode == "Genres" and selected_genres) or (mode == "Keywords" and selected_ta
 st.divider()
 
 # =========================================================
-# RATE MOVIES (UNCHANGED)
+# RATE MOVIES
 # =========================================================
 st.subheader("Rate Movies")
 
@@ -161,7 +162,6 @@ if st.session_state.user_ratings:
 # =========================================================
 if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
 
-    # Build target user vector
     user_vector = pd.Series(0, index=mean_centered.columns, dtype=float)
     for m_id, r in st.session_state.user_ratings.items():
         if m_id in user_vector.index:
@@ -171,20 +171,23 @@ if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
     user_vector = user_vector - target_mean
     user_vector = user_vector.fillna(0)
 
-    # Cosine similarity
     similarities = cosine_similarity([user_vector], mean_centered.values)[0]
 
-    # Overlap filter
     overlaps = (mean_centered != 0).dot((user_vector != 0).astype(int))
     valid_users = np.where(overlaps >= MIN_OVERLAP)[0]
 
     similarities_filtered = similarities[valid_users]
     top_idx = valid_users[np.argsort(similarities_filtered)[-10:]]
 
-    # Weighted predictions
     preds = {}
     for movie_id in mean_centered.columns:
+
         if movie_id in st.session_state.user_ratings:
+            continue
+
+        # ---- NEW FILTER ----
+        movie_info = movies[movies["movieId"] == movie_id]
+        if movie_info.empty or movie_info.iloc[0]["rating_count"] < MIN_REC_RATINGS:
             continue
 
         num = 0

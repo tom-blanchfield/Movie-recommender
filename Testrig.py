@@ -7,7 +7,7 @@ import os
 import matplotlib.pyplot as plt
 
 st.set_page_config(layout="wide")
-st.title("Recommender Evaluation Lab — App Algorithm vs Baseline (with plot)")
+st.title("Recommender Evaluation Lab — App Algorithm vs Baseline (with neighbor filtering)")
 
 # ---------- LOAD DATA ----------
 @st.cache_data
@@ -34,12 +34,14 @@ num_test_users = st.sidebar.slider("Number of test users", 5, 100, 20, step=5)
 num_known_ratings = st.sidebar.slider("Known ratings per user (train)", 1, 50, 10)
 num_neighbors = st.sidebar.slider("Number of cosine neighbours", 1, 50, 5)
 min_overlap = st.sidebar.slider("Minimum overlap (shared movies)", 1, 20, 5)
+min_neighbor_ratings = st.sidebar.slider("Minimum ratings for neighbor users", 1, 50, 10)
 random_seed = st.sidebar.number_input("Random seed", value=42, step=1)
 
 st.sidebar.markdown("---")
 st.sidebar.write("Notes:")
 st.sidebar.write("- App algorithm = mean-centered, weighted-by-similarity, overlap-filtered.")
 st.sidebar.write("- Baseline = simple mean of neighbors' ratings for the item.")
+st.sidebar.write("- Neighbor users must have at least N ratings (min_neighbor_ratings).")
 
 # ---------- UTILS ----------
 def rmse_from_lists(actuals, preds):
@@ -81,9 +83,16 @@ if st.button("Run Evaluation"):
         user_vector_centered = (user_vector - target_mean).fillna(0)
 
         sims = cosine_similarity([user_vector_centered], mean_centered.values)[0]
+
+        # ----------- FILTER NEIGHBORS -----------
         train_mask = (user_vector_centered != 0).astype(int)
         overlaps = (mean_centered != 0).dot(train_mask)
         valid_user_indices = np.where(overlaps >= min_overlap)[0]
+
+        # Apply neighbor user rating count filter
+        neighbor_counts = user_movie_matrix.iloc[valid_user_indices].count(axis=1)
+        valid_user_indices = valid_user_indices[neighbor_counts >= min_neighbor_ratings].to_numpy() if len(neighbor_counts) > 0 else np.array([])
+
         if valid_user_indices.size == 0:
             progress.progress((i + 1)/len(test_users))
             continue

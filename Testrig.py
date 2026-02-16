@@ -8,7 +8,7 @@ import os
 import matplotlib.pyplot as plt
 
 st.set_page_config(layout="wide")
-st.title("Recommender Evaluation Lab — App vs Baseline vs NZMF")
+st.title("Recommender Evaluation Lab — App Algorithm vs Baseline vs NMF")
 
 # ---------- LOAD DATA ----------
 @st.cache_data
@@ -36,7 +36,7 @@ num_known_ratings = st.sidebar.slider("Known ratings per user (train)", 1, 50, 1
 num_neighbors = st.sidebar.slider("Number of cosine neighbours", 1, 50, 5)
 min_overlap = st.sidebar.slider("Minimum overlap (shared movies)", 1, 20, 5)
 min_neighbor_ratings = st.sidebar.slider("Minimum ratings for neighbor users", 1, 50, 10)
-nmf_factors = st.sidebar.slider("NMF latent factors", 5, 50, 20)
+nmf_factors = st.sidebar.slider("NMF latent factors", 2, 50, 10)
 random_seed = st.sidebar.number_input("Random seed", value=42, step=1)
 
 # ---------- UTILS ----------
@@ -45,17 +45,19 @@ def rmse_from_lists(actuals, preds):
         return None
     return float(np.sqrt(np.mean((np.array(actuals) - np.array(preds)) ** 2)))
 
-# ---------- PRECOMPUTE NMF ----------
+# ---------- PREPARE NMF ----------
 @st.cache_data
-def compute_nmf(mat, n_factors, random_seed=42):
-    nmf_model = NMF(n_components=n_factors, init='random', random_state=random_seed, max_iter=500)
-    W = nmf_model.fit_transform(mat)
+def fit_nmf(matrix, n_factors, seed):
+    # Fill missing ratings with user mean
+    matrix_filled = matrix.apply(lambda row: row.fillna(row.mean()), axis=1)
+    nmf_model = NMF(n_components=n_factors, init='random', random_state=seed, max_iter=500)
+    W = nmf_model.fit_transform(matrix_filled)
     H = nmf_model.components_
-    reconstructed = np.dot(W, H)
-    reconstructed_df = pd.DataFrame(reconstructed, index=mat.index, columns=mat.columns)
-    return reconstructed_df
+    nmf_pred = pd.DataFrame(np.dot(W, H), index=matrix.index, columns=matrix.columns)
+    nmf_pred = nmf_pred.clip(1,5)
+    return nmf_pred
 
-nmf_matrix = compute_nmf(user_movie_matrix.fillna(0), nmf_factors, random_seed)
+nmf_matrix = fit_nmf(user_movie_matrix, nmf_factors, random_seed)
 
 # ---------- RUN EVALUATION ----------
 if st.button("Run Evaluation"):
@@ -133,7 +135,8 @@ if st.button("Run Evaluation"):
             true_rating = user_movie_matrix.loc[uid, m]
 
             neigh_ratings_df = ratings[
-                (ratings["userId"].isin(top_user_ids)) & (ratings["movieId"] == m)
+                (ratings["userId"].isin(top_user_ids)) &
+                (ratings["movieId"] == m)
             ][["userId", "rating"]]
 
             if neigh_ratings_df.empty:
@@ -160,7 +163,7 @@ if st.button("Run Evaluation"):
             preds_app.append(pred_app)
             actuals_app.append(true_rating)
 
-            # ---------- NZMF ----------
+            # ---------- NMF ----------
             pred_nmf = nmf_matrix.loc[uid, m]
             preds_nmf.append(pred_nmf)
             actuals_nmf.append(true_rating)
@@ -188,15 +191,27 @@ if st.button("Run Evaluation"):
     if rmses_base:
         st.write(f"Baseline — mean RMSE: {np.mean(rmses_base):.4f}, median: {np.median(rmses_base):.4f}")
     if rmses_nmf:
-        st.write(f"NZMF — mean RMSE: {np.mean(rmses_nmf):.4f}, median: {np.median(rmses_nmf):.4f}")
+        st.write(f"NMF — mean RMSE: {np.mean(rmses_nmf):.4f}, median: {np.median(rmses_nmf):.4f}")
 
     # ---------- BOX PLOT ----------
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.boxplot([rmses_app, rmses_base, rmses_nmf], labels=["App", "Baseline", "NZMF"], showmeans=True)
-    ax.set_ylabel("RMSE")
-    ax.set_title("RMSE Distribution")
-    st.pyplot(fig)
+    fig, ax = plt.subplots(figsize=(8,5))
+    box_data = []
+    labels = []
+    if rmses_app:
+        box_data.append(rmses_app)
+        labels.append("App")
+    if rmses_base:
+        box_data.append(rmses_base)
+        labels.append("Baseline")
+    if rmses_nmf:
+        box_data.append(rmses_nmf)
+        labels.append("NMF")
+    if box_data:
+        ax.boxplot(box_data, labels=labels, showmeans=True)
+        ax.set_ylabel("RMSE")
+        ax.set_title("RMSE Distribution")
+        st.pyplot(fig)
 
-    # ---------- TABLE ----------
-    df = pd.DataFrame(per_user_results, columns=["userId", "rmse_app", "rmse_base", "rmse_nmf", "n_preds"])
+    # ---------- PER-USER TABLE ----------
+    df = pd.DataFrame(per_user_results, columns=["userId","rmse_app","rmse_base","rmse_nmf","n_preds"])
     st.dataframe(df.head(50))

@@ -4,11 +4,19 @@ import numpy as np
 import requests
 from sklearn.metrics.pairwise import cosine_similarity
 
-st.set_page_config(page_title="Movie Recommender", layout="wide")
-st.title("🎬 Movie Recommender")
+# =========================================================
+# CONFIG — QUICK TUNING VARIABLES
+# =========================================================
+MIN_RATINGS = 20          # discovery panel minimum ratings
+MIN_REC_RATINGS = 10      # collaborative + discovery minimum ratings
+MIN_OVERLAP = 5           # neighbour overlap threshold
+NUM_NEIGHBORS = 10        # number of cosine neighbours used
 
 # -------------------- TMDB API KEY --------------------
 TMDB_API_KEY = "888bb40cd1f4d3c95b375753e9c34c09"
+
+st.set_page_config(page_title="Movie Recommender", layout="wide")
+st.title("🎬 Movie Recommender")
 
 # ---------- LOAD DATA ----------
 @st.cache_data
@@ -31,10 +39,6 @@ rating_stats.columns = ["movieId", "avg_rating", "rating_count"]
 movies = movies.merge(rating_stats, on="movieId", how="left")
 movies["avg_rating"] = movies["avg_rating"].fillna(0)
 movies["rating_count"] = movies["rating_count"].fillna(0)
-
-MIN_RATINGS = 20          # discovery panel
-MIN_REC_RATINGS = 10      # collaborative + discovery minimum
-MIN_OVERLAP = 5
 
 # ---------- POSTER FETCH FUNCTION ----------
 @st.cache_data(show_spinner=False)
@@ -158,7 +162,7 @@ if st.session_state.user_ratings:
         st.write(f"{title}: {r}")
 
 # =========================================================
-# IMPROVED COLLAB RECOMMENDATIONS
+# COLLAB RECOMMENDATIONS
 # =========================================================
 if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
 
@@ -177,7 +181,7 @@ if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
     valid_users = np.where(overlaps >= MIN_OVERLAP)[0]
 
     similarities_filtered = similarities[valid_users]
-    top_idx = valid_users[np.argsort(similarities_filtered)[-10:]]
+    top_idx = valid_users[np.argsort(similarities_filtered)[-NUM_NEIGHBORS:]]
 
     preds = {}
     for movie_id in mean_centered.columns:
@@ -185,7 +189,6 @@ if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
         if movie_id in st.session_state.user_ratings:
             continue
 
-        # ---- NEW FILTER ----
         movie_info = movies[movies["movieId"] == movie_id]
         if movie_info.empty or movie_info.iloc[0]["rating_count"] < MIN_REC_RATINGS:
             continue

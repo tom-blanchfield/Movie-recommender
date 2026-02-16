@@ -2,12 +2,13 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.decomposition import NMF
 import random
 import os
 import matplotlib.pyplot as plt
 
 st.set_page_config(layout="wide")
-st.title("Recommender Evaluation Lab — App Algorithm vs Baseline")
+st.title("Recommender Evaluation Lab — App vs Baseline vs NZMF")
 
 # ---------- LOAD DATA ----------
 @st.cache_data
@@ -35,6 +36,7 @@ num_known_ratings = st.sidebar.slider("Known ratings per user (train)", 1, 50, 1
 num_neighbors = st.sidebar.slider("Number of cosine neighbours", 1, 50, 5)
 min_overlap = st.sidebar.slider("Minimum overlap (shared movies)", 1, 20, 5)
 min_neighbor_ratings = st.sidebar.slider("Minimum ratings for neighbor users", 1, 50, 10)
+nmf_factors = st.sidebar.slider("NMF latent factors", 5, 50, 20)
 random_seed = st.sidebar.number_input("Random seed", value=42, step=1)
 
 # ---------- UTILS ----------
@@ -42,6 +44,18 @@ def rmse_from_lists(actuals, preds):
     if len(actuals) == 0:
         return None
     return float(np.sqrt(np.mean((np.array(actuals) - np.array(preds)) ** 2)))
+
+# ---------- PRECOMPUTE NMF ----------
+@st.cache_data
+def compute_nmf(mat, n_factors, random_seed=42):
+    nmf_model = NMF(n_components=n_factors, init='random', random_state=random_seed, max_iter=500)
+    W = nmf_model.fit_transform(mat)
+    H = nmf_model.components_
+    reconstructed = np.dot(W, H)
+    reconstructed_df = pd.DataFrame(reconstructed, index=mat.index, columns=mat.columns)
+    return reconstructed_df
+
+nmf_matrix = compute_nmf(user_movie_matrix.fillna(0), nmf_factors, random_seed)
 
 # ---------- RUN EVALUATION ----------
 if st.button("Run Evaluation"):
@@ -53,6 +67,7 @@ if st.button("Run Evaluation"):
 
     rmses_app = []
     rmses_base = []
+    rmses_nmf = []
     per_user_results = []
 
     progress = st.progress(0)
@@ -111,13 +126,14 @@ if st.button("Run Evaluation"):
         actuals_app = []
         preds_base = []
         actuals_base = []
+        preds_nmf = []
+        actuals_nmf = []
 
         for m in test_ids:
             true_rating = user_movie_matrix.loc[uid, m]
 
             neigh_ratings_df = ratings[
-                (ratings["userId"].isin(top_user_ids)) &
-                (ratings["movieId"] == m)
+                (ratings["userId"].isin(top_user_ids)) & (ratings["movieId"] == m)
             ][["userId", "rating"]]
 
             if neigh_ratings_df.empty:
@@ -131,35 +147,38 @@ if st.button("Run Evaluation"):
             # ---------- APP ALGORITHM ----------
             num = 0.0
             den = 0.0
-
             for uidx, sim_val in zip(top_valid_indices, top_sims):
                 neighbor_id = user_movie_matrix.index[uidx]
                 neigh_centered = mean_centered.loc[neighbor_id, m]
-
                 if neigh_centered != 0 and sim_val > 0:
                     num += sim_val * neigh_centered
                     den += abs(sim_val)
-
             if den > 0:
                 pred_app = target_mean + (num / den)
             else:
                 pred_app = base_pred
-
             preds_app.append(pred_app)
             actuals_app.append(true_rating)
 
+            # ---------- NZMF ----------
+            pred_nmf = nmf_matrix.loc[uid, m]
+            preds_nmf.append(pred_nmf)
+            actuals_nmf.append(true_rating)
+
         rmse_a = rmse_from_lists(actuals_app, preds_app)
         rmse_b = rmse_from_lists(actuals_base, preds_base)
+        rmse_n = rmse_from_lists(actuals_nmf, preds_nmf)
 
         if rmse_a is not None:
             rmses_app.append(rmse_a)
         if rmse_b is not None:
             rmses_base.append(rmse_b)
+        if rmse_n is not None:
+            rmses_nmf.append(rmse_n)
 
-        per_user_results.append((uid, rmse_a, rmse_b, len(actuals_app)))
+        per_user_results.append((uid, rmse_a, rmse_b, rmse_n, len(actuals_app)))
         progress.progress((i + 1) / len(test_users))
 
-    # ---------- FINAL PROGRESS ----------
     progress.progress(1.0)
 
     # ---------- RESULTS ----------
@@ -168,14 +187,16 @@ if st.button("Run Evaluation"):
         st.write(f"App — mean RMSE: {np.mean(rmses_app):.4f}, median: {np.median(rmses_app):.4f}")
     if rmses_base:
         st.write(f"Baseline — mean RMSE: {np.mean(rmses_base):.4f}, median: {np.median(rmses_base):.4f}")
+    if rmses_nmf:
+        st.write(f"NZMF — mean RMSE: {np.mean(rmses_nmf):.4f}, median: {np.median(rmses_nmf):.4f}")
 
     # ---------- BOX PLOT ----------
     fig, ax = plt.subplots(figsize=(8, 5))
-    ax.boxplot([rmses_app, rmses_base], labels=["App", "Baseline"], showmeans=True)
+    ax.boxplot([rmses_app, rmses_base, rmses_nmf], labels=["App", "Baseline", "NZMF"], showmeans=True)
     ax.set_ylabel("RMSE")
     ax.set_title("RMSE Distribution")
     st.pyplot(fig)
 
     # ---------- TABLE ----------
-    df = pd.DataFrame(per_user_results, columns=["userId", "rmse_app", "rmse_base", "n_preds"])
+    df = pd.DataFrame(per_user_results, columns=["userId", "rmse_app", "rmse_base", "rmse_nmf", "n_preds"])
     st.dataframe(df.head(50))

@@ -89,9 +89,12 @@ if st.button("Run Evaluation"):
         overlaps = (mean_centered != 0).dot(train_mask)
         valid_user_indices = np.where(overlaps >= min_overlap)[0]
 
-        # Apply neighbor user rating count filter
-        neighbor_counts = user_movie_matrix.iloc[valid_user_indices].count(axis=1)
-        valid_user_indices = valid_user_indices[neighbor_counts >= min_neighbor_ratings].to_numpy() if len(neighbor_counts) > 0 else np.array([])
+        if len(valid_user_indices) > 0:
+            neighbor_counts = user_movie_matrix.iloc[valid_user_indices].count(axis=1).to_numpy()
+            mask = neighbor_counts >= min_neighbor_ratings
+            valid_user_indices = valid_user_indices[mask]
+        else:
+            valid_user_indices = np.array([], dtype=int)
 
         if valid_user_indices.size == 0:
             progress.progress((i + 1)/len(test_users))
@@ -126,10 +129,7 @@ if st.button("Run Evaluation"):
             den = 0.0
             for uidx, sim_val in zip(top_valid_indices, top_sims):
                 neighbor_id = user_movie_matrix.index[uidx]
-                try:
-                    neigh_centered = mean_centered.loc[neighbor_id, m]
-                except KeyError:
-                    neigh_centered = 0
+                neigh_centered = mean_centered.loc[neighbor_id, m] if m in mean_centered.columns else 0
                 if neigh_centered != 0 and sim_val > 0:
                     num += sim_val * neigh_centered
                     den += abs(sim_val)

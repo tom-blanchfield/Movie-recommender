@@ -21,6 +21,10 @@ def load_data(path="ratings.csv"):
 
 ratings = load_data()
 
+# ---------- NEW: MOVIE RATING COUNTS ----------
+movie_rating_counts = ratings["movieId"].value_counts()
+MIN_MOVIE_RATINGS = 10  # NEW
+
 # ---------- BUILD USER-MOVIE MATRICES ----------
 user_movie_matrix = ratings.pivot_table(index="userId", columns="movieId", values="rating")
 user_means = user_movie_matrix.mean(axis=1)
@@ -42,6 +46,7 @@ st.sidebar.write("Notes:")
 st.sidebar.write("- App algorithm = mean-centered, weighted-by-similarity, overlap-filtered.")
 st.sidebar.write("- Baseline = simple mean of neighbors' ratings for the item.")
 st.sidebar.write("- Neighbor users must have at least N ratings (min_neighbor_ratings).")
+st.sidebar.write(f"- Movies must have ≥ {MIN_MOVIE_RATINGS} ratings.")
 
 # ---------- UTILS ----------
 def rmse_from_lists(actuals, preds):
@@ -55,8 +60,6 @@ if st.button("Run Evaluation"):
     np.random.seed(random_seed)
 
     candidate_users = [u for u in all_users if user_movie_matrix.loc[u].dropna().shape[0] > num_known_ratings]
-    if len(candidate_users) < num_test_users:
-        st.warning(f"Only {len(candidate_users)} users have more than {num_known_ratings} ratings. Reducing test users.")
     test_users = random.sample(candidate_users, min(num_test_users, len(candidate_users)))
 
     rmses_app = []
@@ -71,7 +74,6 @@ if st.button("Run Evaluation"):
         train_ids = ur_idx[:num_known_ratings]
         test_ids = ur_idx[num_known_ratings:]
 
-        # build target vector
         user_vector = pd.Series(0, index=mean_centered.columns, dtype=float)
         for m in train_ids:
             user_vector[m] = user_movie_matrix.loc[uid, m]
@@ -79,12 +81,12 @@ if st.button("Run Evaluation"):
         train_values = [user_vector[m] for m in train_ids if user_vector[m] != 0]
         if len(train_values) == 0:
             continue
+
         target_mean = float(np.mean(train_values))
         user_vector_centered = (user_vector - target_mean).fillna(0)
 
         sims = cosine_similarity([user_vector_centered], mean_centered.values)[0]
 
-        # ----------- FILTER NEIGHBORS -----------
         train_mask = (user_vector_centered != 0).astype(int)
         overlaps = (mean_centered != 0).dot(train_mask)
         valid_user_indices = np.where(overlaps >= min_overlap)[0]
@@ -113,36 +115,45 @@ if st.button("Run Evaluation"):
         actuals_base = []
 
         for m in test_ids:
+
+            # ---------- NEW FILTER ----------
+            if movie_rating_counts.get(m, 0) < MIN_MOVIE_RATINGS:
+                continue
+
             true_rating = user_movie_matrix.loc[uid, m]
 
-            neigh_ratings_df = ratings[(ratings["userId"].isin(top_user_ids)) & (ratings["movieId"] == m)][["userId","rating"]]
+            neigh_ratings_df = ratings[
+                (ratings["userId"].isin(top_user_ids)) &
+                (ratings["movieId"] == m)
+            ][["userId","rating"]]
+
             if neigh_ratings_df.empty:
                 continue
 
-            # Baseline
             base_pred = float(neigh_ratings_df["rating"].mean())
             preds_base.append(base_pred)
             actuals_base.append(true_rating)
 
-            # App algorithm
             num = 0.0
             den = 0.0
             for uidx, sim_val in zip(top_valid_indices, top_sims):
                 neighbor_id = user_movie_matrix.index[uidx]
-                neigh_centered = mean_centered.loc[neighbor_id, m] if m in mean_centered.columns else 0
+                neigh_centered = mean_centered.loc[neighbor_id, m]
                 if neigh_centered != 0 and sim_val > 0:
                     num += sim_val * neigh_centered
                     den += abs(sim_val)
+
             if den > 0:
                 pred_app = target_mean + (num/den)
-                preds_app.append(pred_app)
-                actuals_app.append(true_rating)
             else:
-                preds_app.append(base_pred)
-                actuals_app.append(true_rating)
+                pred_app = base_pred
+
+            preds_app.append(pred_app)
+            actuals_app.append(true_rating)
 
         rmse_a = rmse_from_lists(actuals_app, preds_app)
         rmse_b = rmse_from_lists(actuals_base, preds_base)
+
         if rmse_a is not None:
             rmses_app.append(rmse_a)
         if rmse_b is not None:
@@ -150,39 +161,3 @@ if st.button("Run Evaluation"):
 
         per_user_results.append((uid, rmse_a, rmse_b, len(actuals_app)))
         progress.progress((i + 1)/len(test_users))
-
-    # ---------- NUMERIC RESULTS ----------
-    st.write("### Numeric Results")
-    if rmses_app:
-        st.write(f"App algorithm — mean RMSE: **{np.mean(rmses_app):.4f}**, median RMSE: **{np.median(rmses_app):.4f}**, users evaluated: {len(rmses_app)}")
-    else:
-        st.write("App algorithm — no RMSE values computed.")
-    if rmses_base:
-        st.write(f"Baseline — mean RMSE: **{np.mean(rmses_base):.4f}**, median RMSE: **{np.median(rmses_base):.4f}**, users evaluated: {len(rmses_base)}")
-    else:
-        st.write("Baseline — no RMSE values computed.")
-
-    # ---------- BOX PLOT ----------
-    st.write("### RMSE Distribution: App vs Baseline")
-    fig, ax = plt.subplots(figsize=(8,5))
-    data_to_plot = []
-    labels = []
-    if rmses_app:
-        data_to_plot.append(rmses_app)
-        labels.append("App")
-    if rmses_base:
-        data_to_plot.append(rmses_base)
-        labels.append("Baseline")
-    if data_to_plot:
-        ax.boxplot(data_to_plot, labels=labels, showmeans=True)
-        ax.set_ylabel("RMSE")
-        ax.set_title("RMSE Distribution per-user")
-        st.pyplot(fig)
-
-    # ---------- PER-USER TABLE ----------
-    st.write("### Sample Per-user RMSE")
-    if per_user_results:
-        df_per_user = pd.DataFrame(per_user_results, columns=["userId","rmse_app","rmse_base","n_predictions"])
-        st.dataframe(df_per_user.head(50))
-    else:
-        st.write("No per-user results.")

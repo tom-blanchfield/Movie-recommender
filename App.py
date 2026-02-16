@@ -179,7 +179,7 @@ if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
     valid_users = np.where(overlaps >= MIN_OVERLAP)[0]
 
     similarities_filtered = similarities[valid_users]
-    top_idx = valid_users[np.argsort(similarities_filtered)[-5:]]
+    top_idx = valid_users[np.argsort(similarities_filtered)[-10:]]
 
     # Weighted predictions
     preds = {}

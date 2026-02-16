@@ -8,9 +8,9 @@ from sklearn.metrics.pairwise import cosine_similarity
 # CONFIG — QUICK TUNING VARIABLES
 # =========================================================
 MIN_RATINGS = 20          # discovery panel minimum ratings
-MIN_REC_RATINGS = 10      # collaborative + discovery minimum ratings
+MIN_REC_RATINGS = 5      # collaborative + discovery minimum ratings
 MIN_OVERLAP = 5           # neighbour overlap threshold
-NUM_NEIGHBORS = 10        # number of cosine neighbours used
+NUM_NEIGHBORS = 5        # number of cosine neighbours used
 
 # -------------------- TMDB API KEY --------------------
 TMDB_API_KEY = "888bb40cd1f4d3c95b375753e9c34c09"

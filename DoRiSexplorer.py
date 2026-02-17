@@ -112,7 +112,7 @@ else:
         st.altair_chart(hist2, use_container_width=True)
 
     elif option == "Top Raters Cosine Similarity":
-        top_n = st.sidebar.slider("Top N raters", min_value=50, max_value=2000, value=500, step=50)
+        top_n = st.sidebar.slider("Top N raters", min_value=50, max_value=900, value=500, step=50)
         top_users = ratings['user_id'].value_counts().index[:top_n]
         ratings_top = ratings[ratings['user_id'].isin(top_users)]
         user_book_matrix = ratings_top.pivot_table(index='user_id', columns='book_id', values='rating').fillna(0)

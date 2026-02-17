@@ -2,49 +2,58 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
-from PIL import Image
-
 from sklearn.metrics.pairwise import cosine_similarity
+import os
 
-# -------------------- SETTINGS --------------------
-RATINGS_PATH = "/content/drive/MyDrive/ratings.csv"
-MOVIES_PATH = "/content/drive/MyDrive/movies.csv"
-LINKS_PATH = "/content/drive/MyDrive/links.csv"
-NMF_MODEL_PATH = "/content/drive/MyDrive/nmf_top300x1000_50f.npz"
+# ---------------- SETTINGS ----------------
+RATINGS_PATH = "ratings.csv"
+MOVIES_PATH = "movies.csv"
+LINKS_PATH = "links.csv"
+TAGS_PATH = "tags.csv"
 
-MIN_REC_RATINGS = 10
-MIN_OVERLAP = 5
-TOP_N_RECS = 30
-
-# TMDB API
 TMDB_API_KEY = "888bb40cd1f4d3c95b375753e9c34c09"
 
-st.set_page_config(page_title="MoRiS 2.0 — NMF Recommender", layout="wide")
-st.title("🎬 MoRiS 2.0 — NMF-Powered Movie Recommendations")
+# Collaborative filtering parameters
+MIN_RATINGS = 20         # for discovery panel
+MIN_REC_RATINGS = 10     # minimum ratings for collaborative recommendations
+MIN_OVERLAP = 5          # minimum shared movies for neighbors
+NUM_NEIGHBORS = 5        # number of neighbors to consider
 
-# -------------------- LOAD DATA --------------------
+# ---------- STREAMLIT SETUP ----------
+st.set_page_config(page_title="Movie Recommender", layout="wide")
+st.title("🎬 MoRiS — Movie Recommender")
+
+# ---------- LOAD DATA ----------
 @st.cache_data
 def load_data():
+    if not os.path.exists(RATINGS_PATH):
+        raise FileNotFoundError(f"{RATINGS_PATH} not found in {os.getcwd()}")
+    if not os.path.exists(MOVIES_PATH):
+        raise FileNotFoundError(f"{MOVIES_PATH} not found in {os.getcwd()}")
+    if not os.path.exists(LINKS_PATH):
+        raise FileNotFoundError(f"{LINKS_PATH} not found in {os.getcwd()}")
+    if not os.path.exists(TAGS_PATH):
+        raise FileNotFoundError(f"{TAGS_PATH} not found in {os.getcwd()}")
+
     ratings = pd.read_csv(RATINGS_PATH)
     movies = pd.read_csv(MOVIES_PATH)
+    tags = pd.read_csv(TAGS_PATH)
     links = pd.read_csv(LINKS_PATH)
-    movies = movies.merge(links, on="movieId", how="left")
-    return ratings, movies
+    return ratings, movies, tags, links
 
-ratings, movies = load_data()
-movies["avg_rating"] = ratings.groupby("movieId")["rating"].mean().reindex(movies["movieId"]).fillna(0)
-movies["rating_count"] = ratings.groupby("movieId")["rating"].count().reindex(movies["movieId"]).fillna(0)
+ratings, movies, tags, links = load_data()
 
-# -------------------- LOAD NMF MODEL --------------------
-@st.cache_data
-def load_nmf_model(path=NMF_MODEL_PATH):
-    data = np.load(path, allow_pickle=True)
-    return data['W'], data['H'], data['user_ids'], data['movie_ids']
+movies["genres"] = movies["genres"].fillna("")
+movies = movies.merge(links, on="movieId", how="left")
 
-W, H, user_ids, movie_ids = load_nmf_model()
-latent_factors = H.shape[0]
+# ---------- RATING STATS ----------
+rating_stats = ratings.groupby("movieId")["rating"].agg(["mean", "count"]).reset_index()
+rating_stats.columns = ["movieId", "avg_rating", "rating_count"]
+movies = movies.merge(rating_stats, on="movieId", how="left")
+movies["avg_rating"] = movies["avg_rating"].fillna(0)
+movies["rating_count"] = movies["rating_count"].fillna(0)
 
-# -------------------- POSTER FETCH FUNCTION --------------------
+# ---------- POSTER FUNCTION ----------
 @st.cache_data(show_spinner=False)
 def get_poster(tmdb_id):
     if pd.isna(tmdb_id):
@@ -54,21 +63,96 @@ def get_poster(tmdb_id):
         r = requests.get(url, timeout=5)
         if r.status_code != 200:
             return None
-        poster_path = r.json().get("poster_path")
+        data = r.json()
+        poster_path = data.get("poster_path")
         if poster_path:
             return f"https://image.tmdb.org/t/p/w400{poster_path}"
     except Exception:
         return None
     return None
 
-# -------------------- SESSION STATE --------------------
+# ---------- GENRES ----------
+all_genres = sorted(
+    set(
+        g
+        for sub in movies["genres"].str.split("|")
+        for g in sub
+        if g and g != "(no genres listed)"
+    )
+)
+
+# ---------- USER MATRICES ----------
+user_movie_matrix = ratings.pivot_table(index="userId", columns="movieId", values="rating")
+user_means = user_movie_matrix.mean(axis=1)
+mean_centered = user_movie_matrix.sub(user_means, axis=0).fillna(0)
+
+# ---------- SESSION STATE ----------
 if "user_ratings" not in st.session_state:
     st.session_state.user_ratings = {}
 
-# -------------------- RATE MOVIES --------------------
+# =========================================================
+# DISCOVER MOVIES
+# =========================================================
+st.subheader("Discover Movies")
+mode = st.selectbox("Choose recommendation mode", ["Genres", "Keywords"])
+genre_tag_movies = movies.copy()
+
+if mode == "Genres":
+    selected_genres = st.multiselect("Select Genres", all_genres)
+    if selected_genres:
+        genre_tag_movies["genre_score"] = genre_tag_movies["genres"].apply(
+            lambda g: sum(1 for sel in selected_genres if sel in g)
+        )
+    else:
+        genre_tag_movies["genre_score"] = 0
+    genre_tag_movies["tag_score"] = 0
+
+elif mode == "Keywords":
+    selected_tags = st.multiselect(
+        "Keywords (press Enter after each)", options=[], default=[], accept_new_options=True
+    )
+    selected_tags = [t.lower() for t in selected_tags]
+    genre_tag_movies["genre_score"] = 0
+    if selected_tags:
+        tag_mask = tags["tag"].str.lower().apply(lambda t: any(sel in t for sel in selected_tags))
+        tag_filtered = tags[tag_mask]
+        tag_counts = tag_filtered["movieId"].value_counts()
+        genre_tag_movies["tag_score"] = genre_tag_movies["movieId"].map(tag_counts).fillna(0)
+    else:
+        genre_tag_movies["tag_score"] = 0
+
+genre_tag_movies["total_score"] = genre_tag_movies["genre_score"] + genre_tag_movies["tag_score"]
+
+if (mode == "Genres" and selected_genres) or (mode == "Keywords" and selected_tags):
+    ranked_movies = genre_tag_movies[
+        (genre_tag_movies["total_score"] > 0) &
+        (genre_tag_movies["rating_count"] >= MIN_REC_RATINGS)
+    ].sort_values(by=["avg_rating", "rating_count"], ascending=False)
+
+    for _, row in ranked_movies.head(30).iterrows():
+        poster = get_poster(row["tmdbId"])
+        if poster:
+            st.markdown(
+                f"<div style='text-align:center'>"
+                f"<img src='{poster}' width='300'><br>"
+                f"<strong>{row['title']}</strong><br>"
+                f"⭐ {row['avg_rating']:.2f} ({int(row['rating_count'])} ratings)"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+
+st.divider()
+
+# =========================================================
+# RATE MOVIES
+# =========================================================
 st.subheader("Rate Movies")
 movie_search = st.text_input("Type part of a movie title")
-filtered_titles = movies[movies["title"].str.contains(movie_search, case=False, na=False)]["title"].tolist() if movie_search else []
+if movie_search:
+    filtered_titles = movies[movies["title"].str.contains(movie_search, case=False, na=False)]["title"].tolist()
+else:
+    filtered_titles = []
+
 selected_movie = st.selectbox("Select movie", options=filtered_titles if filtered_titles else ["No results"])
 rating_value = st.slider("Rating", 1, 5, 3)
 
@@ -82,45 +166,64 @@ if st.session_state.user_ratings:
         title = movies[movies["movieId"] == m_id]["title"].values[0]
         st.write(f"{title}: {r}")
 
-# -------------------- NMF PREDICTIONS --------------------
-def predict_nmf_ratings(user_ratings_dict):
-    user_vector = np.zeros(len(movie_ids))
-    for m_id, r in user_ratings_dict.items():
-        if m_id in movie_ids:
-            idx = np.where(movie_ids == m_id)[0][0]
-            user_vector[idx] = r
-
-    user_vector_centered = user_vector.copy()
-    # Simple approach: project onto latent space via non-negative least squares
-    from scipy.optimize import nnls
-    user_features, _ = nnls(H.T, user_vector)
-    predicted_ratings = user_features @ H
-    return predicted_ratings
-
-# -------------------- GET RECOMMENDATIONS --------------------
+# =========================================================
+# IMPROVED COLLAB RECOMMENDATIONS
+# =========================================================
 if st.button("Get Recommendations") and len(st.session_state.user_ratings) > 0:
+
+    user_vector = pd.Series(0, index=mean_centered.columns, dtype=float)
+    for m_id, r in st.session_state.user_ratings.items():
+        if m_id in user_vector.index:
+            user_vector[m_id] = r
+
+    target_mean = user_vector[user_vector > 0].mean()
+    user_vector = user_vector - target_mean
+    user_vector = user_vector.fillna(0)
+
+    similarities = cosine_similarity([user_vector], mean_centered.values)[0]
+
+    overlaps = (mean_centered != 0).dot((user_vector != 0).astype(int))
+    valid_users = np.where(overlaps >= MIN_OVERLAP)[0]
+
+    similarities_filtered = similarities[valid_users]
+    top_idx = valid_users[np.argsort(similarities_filtered)[-NUM_NEIGHBORS:]]
+
+    preds = {}
+    for movie_id in mean_centered.columns:
+
+        if movie_id in st.session_state.user_ratings:
+            continue
+
+        movie_info = movies[movies["movieId"] == movie_id]
+        if movie_info.empty or movie_info.iloc[0]["rating_count"] < MIN_REC_RATINGS:
+            continue
+
+        num = 0
+        den = 0
+        for idx in top_idx:
+            sim = similarities[idx]
+            if sim <= 0:
+                continue
+            rating = mean_centered.iloc[idx][movie_id]
+            if rating != 0:
+                num += sim * rating
+                den += abs(sim)
+
+        if den > 0:
+            pred = target_mean + (num / den)
+            preds[movie_id] = pred
+
+    top_movies = sorted(preds.items(), key=lambda x: x[1], reverse=True)[:30]
+
     st.subheader("Recommended Movies")
-    preds = predict_nmf_ratings(st.session_state.user_ratings)
-
-    recs_df = pd.DataFrame({
-        "movieId": movie_ids,
-        "pred_rating": preds
-    })
-    # Filter out movies already rated by user
-    recs_df = recs_df[~recs_df["movieId"].isin(st.session_state.user_ratings.keys())]
-    # Filter by minimum ratings
-    recs_df = recs_df.merge(movies[["movieId", "rating_count", "title", "tmdbId"]], on="movieId")
-    recs_df = recs_df[recs_df["rating_count"] >= MIN_REC_RATINGS]
-    recs_df = recs_df.sort_values("pred_rating", ascending=False).head(TOP_N_RECS)
-
-    for _, row in recs_df.iterrows():
+    for m_id, _ in top_movies:
+        row = movies[movies["movieId"] == m_id].iloc[0]
         poster = get_poster(row["tmdbId"])
         if poster:
             st.markdown(
                 f"<div style='text-align:center'>"
                 f"<img src='{poster}' width='300'><br>"
-                f"<strong>{row['title']}</strong><br>"
-                f"Predicted rating: {row['pred_rating']:.2f}"
+                f"<strong>{row['title']}</strong>"
                 f"</div>",
                 unsafe_allow_html=True
             )

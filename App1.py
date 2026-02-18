@@ -9,7 +9,7 @@ st.title("🎬 MoRiS 2.0 — Movie Recommender")
 
 # ---------------- SETTINGS ----------------
 TMDB_API_KEY = "YOUR_KEY"
-NMF_MODEL_PATH = "nmf_top3000_300f.npz"
+NMF_MODEL_PATH = "nmf_300f_top3000.npz"
 BATCH_SIZE = 30
 MAX_POOL = 150
 

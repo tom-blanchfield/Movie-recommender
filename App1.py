@@ -9,7 +9,7 @@ st.title("🎬 MoRiS 2.0 — Movie Recommender")
 
 # ---------------- SETTINGS ----------------
 TMDB_API_KEY = "YOUR_KEY"
-NMF_MODEL_PATH = "nmf_300f_top3000.npz"
+NMF_MODEL_PATH = "nmf_top3000_300f.npz"
 BATCH_SIZE = 30
 MAX_POOL = 150
 
@@ -80,10 +80,13 @@ def load_nmf(path):
 H, nmf_movie_ids = load_nmf(NMF_MODEL_PATH)
 H_pinv = pinv(H)
 
+# Only movies that exist in both model and movies.csv
+valid_model_movie_ids = set(nmf_movie_ids).intersection(set(movies["movieId"]))
+
 st.divider()
 
 # =========================================================
-# RATE MOVIES — ULTRA FAST SEARCH
+# RATE MOVIES
 # =========================================================
 st.subheader("Rate Movies")
 
@@ -115,12 +118,6 @@ if st.session_state.user_ratings:
     for m_id, r in st.session_state.user_ratings.items():
         st.write(f"{id_to_title[m_id]} ⭐ {r}")
 
-    if st.button("Clear Ratings"):
-        st.session_state.user_ratings = {}
-        st.session_state.nmf_pool = []
-        st.session_state.nmf_index = 0
-        st.rerun()
-
 st.divider()
 
 # =========================================================
@@ -130,25 +127,35 @@ if st.button("Get NMF Recommendations") and st.session_state.user_ratings:
 
     st.session_state.nmf_index = 0
 
+    # Only include movies model knows
     user_vec = pd.Series(0, index=nmf_movie_ids, dtype=float)
     for m_id, r in st.session_state.user_ratings.items():
         if m_id in user_vec.index:
             user_vec[m_id] = r
 
-    mean_val = user_vec[user_vec>0].mean() if (user_vec>0).any() else 0
-    centered = (user_vec-mean_val).fillna(0)
+    if user_vec.sum() == 0:
+        st.warning("None of your rated movies exist in the model.")
+    else:
+        mean_val = user_vec[user_vec>0].mean()
+        centered = (user_vec-mean_val).fillna(0)
 
-    latent = np.dot(centered.values, H_pinv)
-    preds = np.dot(latent, H) + mean_val
-    preds = np.clip(preds,1,5)
+        latent = np.dot(centered.values, H_pinv)
+        preds = np.dot(latent, H) + mean_val
+        preds = np.clip(preds,1,5)
 
-    preds_series = pd.Series(preds,index=nmf_movie_ids)
-    preds_series = preds_series.drop(
-        labels=[m for m in st.session_state.user_ratings if m in preds_series.index]
-    )
-    preds_series = preds_series.sort_values(ascending=False)
+        preds_series = pd.Series(preds,index=nmf_movie_ids)
 
-    st.session_state.nmf_pool = list(preds_series.head(MAX_POOL).items())
+        # Remove rated movies
+        preds_series = preds_series.drop(
+            labels=[m for m in st.session_state.user_ratings if m in preds_series.index]
+        )
+
+        # Only valid movies
+        preds_series = preds_series[preds_series.index.isin(valid_model_movie_ids)]
+
+        preds_series = preds_series.sort_values(ascending=False)
+
+        st.session_state.nmf_pool = list(preds_series.head(MAX_POOL).items())
 
 # DISPLAY
 st.subheader("NMF Recommendations")

@@ -10,7 +10,7 @@ st.set_page_config(layout="wide")
 st.title("Recommender Evaluation Lab — App Algorithm vs Baseline vs NMF")
 
 # ---------- CONFIG ----------
-NPZ_MODEL_PATH = "nmf_top300x1000_100f.npz"   # <-- HARD CODED
+NPZ_MODEL_PATH = "nmf_300f_top3000.npz"   # <-- HARD CODED
 
 # ---------- LOAD DATA ----------
 @st.cache_data

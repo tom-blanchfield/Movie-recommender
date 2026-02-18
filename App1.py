@@ -9,8 +9,9 @@ st.title("🎬 MoRiS 2.0 — Movie Recommender")
 
 # ---------------- SETTINGS ----------------
 TMDB_API_KEY = "YOUR_KEY"
-NMF_MODEL_PATH = "nmf_small_200f.npz"
+NMF_MODEL_PATH = "nmf_top3000_300f.npz"
 BATCH_SIZE = 30
+MAX_POOL = 150
 
 # ---------------- LOAD DATA ----------------
 @st.cache_data
@@ -21,6 +22,7 @@ def load_data():
     return ratings, movies, links
 
 ratings, movies, links = load_data()
+
 movies = movies.merge(links, on="movieId", how="left")
 movies["genres"] = movies["genres"].fillna("")
 
@@ -29,17 +31,28 @@ rating_stats.columns = ["movieId","avg_rating","rating_count"]
 movies = movies.merge(rating_stats, on="movieId", how="left")
 movies.fillna({"avg_rating":0,"rating_count":0}, inplace=True)
 
+# ---------------- FAST TITLE SEARCH STRUCTURES ----------------
+@st.cache_data
+def build_title_structures(df):
+    titles = df["title"].tolist()
+    titles_lower = [t.lower() for t in titles]
+    title_to_id = dict(zip(df["title"], df["movieId"]))
+    id_to_title = dict(zip(df["movieId"], df["title"]))
+    return titles, titles_lower, title_to_id, id_to_title
+
+titles, titles_lower, title_to_id, id_to_title = build_title_structures(movies)
+
 # ---------------- SESSION ----------------
 defaults = {
     "user_ratings": {},
-    "nmf_index": 0,
-    "nmf_pool": []
+    "nmf_pool": [],
+    "nmf_index": 0
 }
 for k,v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ---------------- POSTER ----------------
+# ---------------- POSTERS ----------------
 @st.cache_data(show_spinner=False)
 def get_poster(tmdb_id):
     if pd.isna(tmdb_id):
@@ -70,34 +83,37 @@ H_pinv = pinv(H)
 st.divider()
 
 # =========================================================
-# RATE MOVIES  (FAST VERSION — SAME AS COLLAB APP)
+# RATE MOVIES — ULTRA FAST SEARCH
 # =========================================================
 st.subheader("Rate Movies")
 
-movie_search = st.text_input("Type part of a movie title")
+search = st.text_input("Type part of a movie title").lower()
 
-filtered_titles = (
-    movies[movies["title"].str.contains(movie_search, case=False, na=False)]["title"].tolist()
-    if movie_search else []
-)
+if search:
+    matches = [
+        titles[i]
+        for i, t in enumerate(titles_lower)
+        if search in t
+    ][:50]
+else:
+    matches = []
 
 selected_movie = st.selectbox(
     "Select movie",
-    options=filtered_titles if filtered_titles else ["No results"]
+    options=matches if matches else ["No results"]
 )
 
-rating_value = st.slider("Rating",1,5,3)
+rating_val = st.slider("Rating",1,5,3)
 
-if st.button("Add Rating") and filtered_titles:
-    movie_id = int(movies[movies["title"]==selected_movie]["movieId"].values[0])
-    st.session_state.user_ratings[movie_id] = rating_value
+if st.button("Add Rating") and matches:
+    m_id = int(title_to_id[selected_movie])
+    st.session_state.user_ratings[m_id] = rating_val
 
-# SHOW USER RATINGS
+# SHOW RATINGS
 if st.session_state.user_ratings:
     st.write("### Your Ratings")
     for m_id, r in st.session_state.user_ratings.items():
-        title = movies[movies["movieId"]==m_id]["title"].values[0]
-        st.write(f"{title}: ⭐ {r}")
+        st.write(f"{id_to_title[m_id]} ⭐ {r}")
 
     if st.button("Clear Ratings"):
         st.session_state.user_ratings = {}
@@ -132,21 +148,26 @@ if st.button("Get NMF Recommendations") and st.session_state.user_ratings:
     )
     preds_series = preds_series.sort_values(ascending=False)
 
-    st.session_state.nmf_pool = preds_series.head(150).items()
+    st.session_state.nmf_pool = list(preds_series.head(MAX_POOL).items())
 
-# DISPLAY BATCH
+# DISPLAY
 st.subheader("NMF Recommendations")
 
-pool = list(st.session_state.nmf_pool)
+pool = st.session_state.nmf_pool
 end = st.session_state.nmf_index + BATCH_SIZE
 
 for m_id, pred in pool[st.session_state.nmf_index:end]:
-    row = movies[movies["movieId"]==m_id].iloc[0]
+    row = movies[movies["movieId"]==m_id]
+    if row.empty:
+        continue
+    row = row.iloc[0]
     poster = get_poster(row["tmdbId"])
     if poster:
         st.markdown(
-            f"<div style='text-align:center'><img src='{poster}' width='300'><br>"
-            f"<strong>{row['title']}</strong><br>⭐ {pred:.2f}</div>",
+            f"<div style='text-align:center'>"
+            f"<img src='{poster}' width='300'><br>"
+            f"<strong>{row['title']}</strong><br>"
+            f"⭐ {pred:.2f}</div>",
             unsafe_allow_html=True
         )
 

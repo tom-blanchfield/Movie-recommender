@@ -19,8 +19,11 @@ NMF_MODEL_PATH = "nmf_300f_top3000.npz"
 MIN_RATINGS = 20
 MIN_REC_RATINGS = 10
 MIN_OVERLAP = 5
+
+# 🔥 New constants (only change requested)
+MIN_PRED_RATING = 4.0
+MAX_RECS = 150
 BATCH_SIZE = 30
-MIN_PRED_RATING = 3.5   # 🔥 NEW — only recommend strong predictions
 
 # -------------------- LOAD DATA --------------------
 @st.cache_data
@@ -42,24 +45,21 @@ movies = movies.merge(rating_stats, on="movieId", how="left")
 movies["avg_rating"] = movies["avg_rating"].fillna(0)
 movies["rating_count"] = movies["rating_count"].fillna(0)
 
-# User matrices
 user_movie_matrix = ratings.pivot_table(index="userId", columns="movieId", values="rating")
 user_means = user_movie_matrix.mean(axis=1)
 mean_centered = user_movie_matrix.sub(user_means, axis=0).fillna(0)
 
-all_genres = sorted(set(g for sub in movies["genres"].str.split("|") for g in sub if g and g != "(no genres listed)"))
-
 # -------------------- SESSION STATE --------------------
 if "user_ratings" not in st.session_state:
     st.session_state.user_ratings = {}
+
 if "nmf_rec_index" not in st.session_state:
     st.session_state.nmf_rec_index = 0
+
 if "collab_rec_index" not in st.session_state:
     st.session_state.collab_rec_index = 0
-if "genre_rec_index" not in st.session_state:
-    st.session_state.genre_rec_index = 0
 
-# -------------------- POSTER FUNCTION --------------------
+# -------------------- POSTER --------------------
 @st.cache_data(show_spinner=False)
 def get_poster(tmdb_id):
     if pd.isna(tmdb_id):
@@ -76,7 +76,7 @@ def get_poster(tmdb_id):
         return None
     return None
 
-# -------------------- NMF MODEL --------------------
+# -------------------- LOAD NMF --------------------
 @st.cache_data
 def load_nmf_model(path):
     data = np.load(path, allow_pickle=True)
@@ -95,14 +95,24 @@ nmf_movie_ids = nmf_data["movie_ids"]
 # RATE MOVIES
 # =========================================================
 st.subheader("Rate Movies")
+
 movie_search = st.text_input("Type part of a movie title")
 
-filtered_titles = movies[movies["title"].str.contains(movie_search, case=False, na=False)]["title"].tolist() if movie_search else []
-selected_movie = st.selectbox("Select movie", options=filtered_titles if filtered_titles else ["No results"])
+filtered_titles = movies[
+    movies["title"].str.contains(movie_search, case=False, na=False)
+]["title"].tolist() if movie_search else []
+
+selected_movie = st.selectbox(
+    "Select movie",
+    options=filtered_titles if filtered_titles else ["No results"]
+)
+
 rating_value = st.slider("Rating", 1, 5, 3)
 
 if st.button("Add Rating") and filtered_titles:
-    movie_id = int(movies[movies["title"] == selected_movie]["movieId"].values[0])
+    movie_id = int(
+        movies[movies["title"] == selected_movie]["movieId"].values[0]
+    )
     st.session_state.user_ratings[movie_id] = int(rating_value)
 
 if st.session_state.user_ratings:
@@ -114,9 +124,12 @@ if st.session_state.user_ratings:
 st.divider()
 
 # =========================================================
-# NMF RECOMMENDATIONS (IMPROVED RANKING)
+# NMF RECOMMENDATIONS (FIXED AS REQUESTED)
 # =========================================================
+
 if st.button("Get NMF Recommendations") and st.session_state.user_ratings:
+
+    st.session_state.nmf_rec_index = 0
 
     user_vec = pd.Series(0, index=nmf_movie_ids)
 
@@ -133,30 +146,129 @@ if st.button("Get NMF Recommendations") and st.session_state.user_ratings:
 
     preds_series = pd.Series(preds, index=nmf_movie_ids)
 
-    # Remove already rated movies
     preds_series = preds_series.drop(
-        labels=[m for m in st.session_state.user_ratings.keys() if m in preds_series.index]
+        labels=[m for m in st.session_state.user_ratings.keys() if m in preds_series.index],
+        errors="ignore"
     )
 
-    # 🔥 Only recommend strong predicted ratings
+    # 🔥 Only predicted 4+
     preds_series = preds_series[preds_series >= MIN_PRED_RATING]
 
     preds_series = preds_series.sort_values(ascending=False)
 
+    preds_series = preds_series.head(MAX_RECS)
+
+    st.session_state.nmf_recs = preds_series
+
+# -------------------- DISPLAY NMF RECS --------------------
+
+if "nmf_recs" in st.session_state:
+
+    recs = st.session_state.nmf_recs
+
     start = st.session_state.nmf_rec_index
     end = start + BATCH_SIZE
 
-    for m_id, pred_rating in zip(preds_series.index[start:end], preds_series.values[start:end]):
+    batch = recs.iloc[start:end]
+
+    if batch.empty:
+        st.info("No more recommendations.")
+    else:
+        for m_id, pred_rating in zip(batch.index, batch.values):
+
+            row = movies[movies["movieId"] == m_id].iloc[0]
+            poster = get_poster(row["tmdbId"])
+
+            if poster:
+                st.markdown(
+                    f"<div style='text-align:center'>"
+                    f"<img src='{poster}' width='250'><br>"
+                    f"<strong>{row['title']}</strong><br>"
+                    f"⭐ Predicted: {pred_rating:.2f}"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+
+        if end < len(recs):
+            if st.button("Load 30 More"):
+                st.session_state.nmf_rec_index += BATCH_SIZE
+                st.rerun()
+
+# =========================================================
+# COLLABORATIVE FILTERING (UNCHANGED)
+# =========================================================
+
+st.divider()
+st.subheader("Collaborative Filtering Recommendations")
+
+if st.button("Get Collaborative Recommendations") and st.session_state.user_ratings:
+
+    st.session_state.collab_rec_index = 0
+
+    new_user = pd.Series(np.nan, index=user_movie_matrix.columns)
+
+    for m_id, r in st.session_state.user_ratings.items():
+        if m_id in new_user.index:
+            new_user[m_id] = r
+
+    temp_matrix = user_movie_matrix.copy()
+    temp_matrix.loc["new_user"] = new_user
+
+    temp_means = temp_matrix.mean(axis=1)
+    temp_centered = temp_matrix.sub(temp_means, axis=0).fillna(0)
+
+    similarity = cosine_similarity(
+        temp_centered.loc[["new_user"]],
+        temp_centered.drop("new_user")
+    )[0]
+
+    sim_series = pd.Series(similarity, index=temp_centered.drop("new_user").index)
+
+    top_users = sim_series.sort_values(ascending=False).head(20).index
+
+    weighted_sum = temp_centered.loc[top_users].T.dot(
+        sim_series.loc[top_users]
+    )
+
+    sim_total = sim_series.loc[top_users].sum()
+
+    collab_preds = weighted_sum / sim_total
+    collab_preds = collab_preds + temp_means["new_user"]
+
+    collab_preds = collab_preds.drop(
+        labels=st.session_state.user_ratings.keys(),
+        errors="ignore"
+    )
+
+    collab_preds = collab_preds.sort_values(ascending=False)
+
+    st.session_state.collab_recs = collab_preds.head(150)
+
+if "collab_recs" in st.session_state:
+
+    recs = st.session_state.collab_recs
+
+    start = st.session_state.collab_rec_index
+    end = start + 30
+
+    batch = recs.iloc[start:end]
+
+    for m_id, pred_rating in zip(batch.index, batch.values):
+
         row = movies[movies["movieId"] == m_id].iloc[0]
         poster = get_poster(row["tmdbId"])
+
         if poster:
             st.markdown(
                 f"<div style='text-align:center'>"
-                f"<img src='{poster}' width='300'><br>"
+                f"<img src='{poster}' width='250'><br>"
                 f"<strong>{row['title']}</strong><br>"
-                f"⭐ {pred_rating:.2f}"
+                f"⭐ Predicted: {pred_rating:.2f}"
                 f"</div>",
                 unsafe_allow_html=True
             )
 
-    st.session_state.nmf_rec_index += BATCH_SIZE
+    if end < len(recs):
+        if st.button("Load 30 More (Collaborative)"):
+            st.session_state.collab_rec_index += 30
+            st.rerun()

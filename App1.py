@@ -256,10 +256,7 @@ if st.button("Get NMF Recommendations") and st.session_state.user_ratings:
 
     user_latent = np.dot(user_vec_centered.values, pinv(H))
 
-    # 🔥 Reconstruct predictions
     preds = np.dot(user_latent, H) + user_mean
-
-    # 🔥 Clip to valid rating scale
     preds = np.clip(preds, 1, 5)
 
     preds_series = pd.Series(preds, index=nmf_movie_ids)
@@ -270,8 +267,15 @@ if st.button("Get NMF Recommendations") and st.session_state.user_ratings:
         errors="ignore"
     )
 
-    # 🔥 Sort strictly by highest predicted rating
+    # Sort highest first
     preds_series = preds_series.sort_values(ascending=False)
+
+    # 🔥 ONLY recommend movies predicted 4.5+
+    preds_series = preds_series[preds_series >= 4.5]
+
+    if preds_series.empty:
+        st.warning("Model cannot confidently predict any 4.5+ movies yet. Rate more movies.")
+        st.stop()
 
     start = st.session_state.nmf_rec_index
     end = start + BATCH_SIZE
@@ -295,4 +299,3 @@ if st.button("Get NMF Recommendations") and st.session_state.user_ratings:
             pass
     else:
         st.session_state.nmf_rec_index = 0
- 

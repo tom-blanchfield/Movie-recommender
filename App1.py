@@ -241,27 +241,26 @@ st.divider()
 # =========================================================
 # NMF RECOMMENDATIONS
 # =========================================================
-# =========================================================
-# NMF RECOMMENDATIONS
-# =========================================================
 if st.button("Get NMF Recommendations") and st.session_state.user_ratings:
 
-    user_vec = pd.Series(0, index=nmf_movie_ids)
+    # Build user vector
+    user_vec = pd.Series(0, index=nmf_movie_ids, dtype=float)
     for m_id, r in st.session_state.user_ratings.items():
         if m_id in user_vec.index:
             user_vec[m_id] = r
 
-    user_mean = user_vec[user_vec > 0].mean() if (user_vec > 0).any() else 0
-    user_vec_centered = (user_vec - user_mean).fillna(0)
+    # 🔥 Project into latent space properly
+    user_latent = np.dot(user_vec.values, H.T)
 
-    user_latent = np.dot(user_vec_centered.values, pinv(H))
+    # 🔥 Reconstruct ratings
+    preds = np.dot(user_latent, H)
 
-    preds = np.dot(user_latent, H) + user_mean
+    # Scale back to 1–5 range
     preds = np.clip(preds, 1, 5)
 
     preds_series = pd.Series(preds, index=nmf_movie_ids)
 
-    # Remove already-rated movies
+    # Remove already rated movies
     preds_series = preds_series.drop(
         labels=[m for m in st.session_state.user_ratings.keys() if m in preds_series.index],
         errors="ignore"
@@ -270,11 +269,8 @@ if st.button("Get NMF Recommendations") and st.session_state.user_ratings:
     # Sort highest first
     preds_series = preds_series.sort_values(ascending=False)
 
-    # 🔥 ONLY recommend movies predicted 4.5+
-    preds_series = preds_series[preds_series >= 4.5]
-
     if preds_series.empty:
-        st.warning("Model cannot confidently predict any 4.5+ movies yet. Rate more movies.")
+        st.warning("No recommendations available.")
         st.stop()
 
     start = st.session_state.nmf_rec_index

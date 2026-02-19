@@ -14,7 +14,7 @@ RATINGS_PATH = "ratings.csv"
 MOVIES_PATH = "movies.csv"
 LINKS_PATH = "links.csv"
 TAGS_PATH = "tags.csv"
-NMF_MODEL_PATH = "nmf_top300x1000_50f.npz"
+NMF_MODEL_PATH = "nmf_300f_top3000.npz"
 
 MIN_RATINGS = 20
 MIN_REC_RATINGS = 10

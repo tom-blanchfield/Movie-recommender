@@ -241,6 +241,9 @@ st.divider()
 # =========================================================
 # NMF RECOMMENDATIONS
 # =========================================================
+# =========================================================
+# NMF RECOMMENDATIONS
+# =========================================================
 if st.button("Get NMF Recommendations") and st.session_state.user_ratings:
 
     user_vec = pd.Series(0, index=nmf_movie_ids)
@@ -250,14 +253,29 @@ if st.button("Get NMF Recommendations") and st.session_state.user_ratings:
 
     user_mean = user_vec[user_vec > 0].mean() if (user_vec > 0).any() else 0
     user_vec_centered = (user_vec - user_mean).fillna(0)
+
     user_latent = np.dot(user_vec_centered.values, pinv(H))
+
+    # 🔥 Reconstruct predictions
     preds = np.dot(user_latent, H) + user_mean
+
+    # 🔥 Clip to valid rating scale
+    preds = np.clip(preds, 1, 5)
+
     preds_series = pd.Series(preds, index=nmf_movie_ids)
-    preds_series = preds_series.drop(labels=[m for m in st.session_state.user_ratings.keys() if m in preds_series.index])
+
+    # Remove already-rated movies
+    preds_series = preds_series.drop(
+        labels=[m for m in st.session_state.user_ratings.keys() if m in preds_series.index],
+        errors="ignore"
+    )
+
+    # 🔥 Sort strictly by highest predicted rating
     preds_series = preds_series.sort_values(ascending=False)
 
     start = st.session_state.nmf_rec_index
     end = start + BATCH_SIZE
+
     for m_id, pred_rating in zip(preds_series.index[start:end], preds_series.values[start:end]):
         row = movies[movies["movieId"] == m_id].iloc[0]
         poster = get_poster(row["tmdbId"])
@@ -270,9 +288,11 @@ if st.button("Get NMF Recommendations") and st.session_state.user_ratings:
                 f"</div>",
                 unsafe_allow_html=True
             )
+
     st.session_state.nmf_rec_index += BATCH_SIZE
     if st.session_state.nmf_rec_index < len(preds_series):
         if st.button("Load More NMF Recommendations"):
             pass
     else:
         st.session_state.nmf_rec_index = 0
+ 

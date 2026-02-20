@@ -243,19 +243,27 @@ st.divider()
 # =========================================================
 if st.button("Get NMF Recommendations") and st.session_state.user_ratings:
 
-    # Build user vector
+    # Build user vector aligned to NMF movie ordering
     user_vec = pd.Series(0, index=nmf_movie_ids, dtype=float)
     for m_id, r in st.session_state.user_ratings.items():
         if m_id in user_vec.index:
             user_vec[m_id] = r
 
-    # 🔥 Project into latent space properly
-    user_latent = np.dot(user_vec.values, H.T)
+    # -----------------------------------------------------
+    # Project into latent space
+    # H shape: (factors × movies)
+    # user_vec: (movies,)
+    # Result: (factors,)
+    # -----------------------------------------------------
+    user_latent = np.dot(H, user_vec.values)
 
-    # 🔥 Reconstruct ratings
+    # -----------------------------------------------------
+    # Reconstruct predictions
+    # (factors,) × (factors × movies) -> (movies,)
+    # -----------------------------------------------------
     preds = np.dot(user_latent, H)
 
-    # Scale back to 1–5 range
+    # Keep ratings in valid range
     preds = np.clip(preds, 1, 5)
 
     preds_series = pd.Series(preds, index=nmf_movie_ids)
@@ -266,7 +274,7 @@ if st.button("Get NMF Recommendations") and st.session_state.user_ratings:
         errors="ignore"
     )
 
-    # Sort highest first
+    # Sort highest predicted first
     preds_series = preds_series.sort_values(ascending=False)
 
     if preds_series.empty:
@@ -276,9 +284,20 @@ if st.button("Get NMF Recommendations") and st.session_state.user_ratings:
     start = st.session_state.nmf_rec_index
     end = start + BATCH_SIZE
 
-    for m_id, pred_rating in zip(preds_series.index[start:end], preds_series.values[start:end]):
-        row = movies[movies["movieId"] == m_id].iloc[0]
+    for m_id, pred_rating in zip(
+        preds_series.index[start:end],
+        preds_series.values[start:end]
+    ):
+
+        # Safe metadata lookup (fixes out-of-bounds error)
+        movie_match = movies[movies["movieId"] == m_id]
+
+        if movie_match.empty:
+            continue
+
+        row = movie_match.iloc[0]
         poster = get_poster(row["tmdbId"])
+
         if poster:
             st.markdown(
                 f"<div style='text-align:center'>"
@@ -290,6 +309,7 @@ if st.button("Get NMF Recommendations") and st.session_state.user_ratings:
             )
 
     st.session_state.nmf_rec_index += BATCH_SIZE
+
     if st.session_state.nmf_rec_index < len(preds_series):
         if st.button("Load More NMF Recommendations"):
             pass

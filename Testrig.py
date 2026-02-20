@@ -121,9 +121,9 @@ for tid in train_ids:
     if tid in user_vec_nmf.index:
         user_vec_nmf[tid] = user_movie_matrix.loc[uid, tid]
 
-latent = H @ user_vec_nmf.values
-nmf_preds_full = latent @ H
-nmf_preds_full = np.clip(nmf_preds_full, 1, 5)
+        latent = H @ user_vec_nmf.values
+        nmf_preds_full = latent @ H
+        nmf_preds_full = np.clip(nmf_preds_full, 1, 5)
 
         nmf_dict = dict(zip(nmf_movie_ids, nmf_preds_full))
 

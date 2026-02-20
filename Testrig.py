@@ -116,10 +116,15 @@ if st.button("Run Evaluation"):
         for tid in train_ids:
             if tid in user_vec_nmf.index:
                 user_vec_nmf[tid] = user_movie_matrix.loc[uid, tid]
-        mean_val = user_vec_nmf[user_vec_nmf > 0].mean() if (user_vec_nmf > 0).any() else 0
-        centered = (user_vec_nmf - mean_val).fillna(0)
-        latent = centered.values @ H_pinv
-        nmf_preds_full = latent @ H + mean_val
+        user_vec_nmf = pd.Series(0, index=nmf_movie_ids, dtype=float)
+for tid in train_ids:
+    if tid in user_vec_nmf.index:
+        user_vec_nmf[tid] = user_movie_matrix.loc[uid, tid]
+
+latent = H @ user_vec_nmf.values
+nmf_preds_full = latent @ H
+nmf_preds_full = np.clip(nmf_preds_full, 1, 5)
+
         nmf_dict = dict(zip(nmf_movie_ids, nmf_preds_full))
 
         for m in test_ids:
